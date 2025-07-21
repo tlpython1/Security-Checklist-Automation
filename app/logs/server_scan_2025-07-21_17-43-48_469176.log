@@ -1,0 +1,4 @@
+2025-07-21 17:45:23.319 | INFO     | scanner.security_checker:run_full_scan:27 - Using SSH key authentication for ubuntu@13.52.112.250
+2025-07-21 17:45:26.120 | INFO     | scanner.security_checker:run_full_scan:42 - Connected to 13.52.112.250 successfully.
+2025-07-21 17:45:26.121 | INFO     | scanner.security_checker:run_full_scan:44 - Starting port scan...
+2025-07-21 17:47:25.407 | INFO     | scanner.security_checker:run_full_scan:46 - Open ports found: {80: '0.0.0.0/0 (assumed - verify manually)', 443: '0.0.0.0/0 (assumed - verify manually)'}

@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Server Security Scanner</title>
+</head>
+<body>
+    <h1>Enter Server Details</h1>
+    <form action="/scan" method="post">
+        <label>Host:</label><input type="text" name="host" required><br>
+        <label>Port:</label><input type="number" name="port" value="22" required><br>
+        <label>Username:</label><input type="text" name="username" required><br>
+        <label>Password:</label><input type="password" name="password" required><br>
+        <input type="submit" value="Scan Server">
+    </form>
+</body>
+</html>
