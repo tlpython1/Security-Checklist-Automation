@@ -1,0 +1,4 @@
+2025-07-22 13:18:26.949 | INFO     | scanner.security_checker:run_full_scan:21 - Using password authentication for icarenetad@208.109.245.132
+2025-07-22 13:18:32.562 | INFO     | scanner.security_checker:run_full_scan:56 - Connected to 208.109.245.132 successfully.
+2025-07-22 13:18:32.563 | INFO     | scanner.security_checker:run_full_scan:60 - Starting port scan...
+2025-07-22 13:18:32.563 | ERROR    | scanner.security_checker:run_full_scan:145 - Failed to connect or scan: get_listening_ports_fast() got an unexpected keyword argument 'scan_type'

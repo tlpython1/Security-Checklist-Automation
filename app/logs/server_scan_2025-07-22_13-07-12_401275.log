@@ -1,0 +1,3 @@
+2025-07-22 13:07:17.573 | INFO     | scanner.security_checker:run_full_scan:21 - Using password authentication for icarenetad@208.109.245.132
+2025-07-22 13:07:23.350 | INFO     | scanner.security_checker:run_full_scan:56 - Connected to 208.109.245.132 successfully.
+2025-07-22 13:07:23.351 | INFO     | scanner.security_checker:run_full_scan:60 - Starting port scan...

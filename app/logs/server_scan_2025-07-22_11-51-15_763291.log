@@ -1,0 +1,9 @@
+2025-07-22 11:53:22.625 | INFO     | scanner.security_checker:run_full_scan:21 - Using password authentication for root@95.217.235.188
+2025-07-22 11:53:27.089 | INFO     | scanner.security_checker:run_full_scan:56 - Connected to 95.217.235.188 successfully.
+2025-07-22 11:53:27.089 | INFO     | scanner.security_checker:run_full_scan:60 - Starting port scan...
+2025-07-22 11:53:27.089 | INFO     | scanner.security_checker:run_full_scan:63 - Running comprehensive port scan (all 65535 ports)...
+2025-07-22 11:58:27.506 | INFO     | scanner.security_checker:run_full_scan:73 - Open ports found: 3 ports
+2025-07-22 11:58:27.506 | INFO     | scanner.security_checker:run_full_scan:74 - Scan type: Comprehensive (1-65535)
+2025-07-22 11:58:27.506 | INFO     | scanner.security_checker:run_full_scan:75 - Scan duration: 300.42 seconds
+2025-07-22 11:58:27.506 | INFO     | scanner.security_checker:run_full_scan:76 - Open ports list: [21, 53, 80]
+2025-07-22 11:58:27.507 | INFO     | scanner.security_checker:run_full_scan:78 - Open ports found: 7 ports
