@@ -1,3 +1,0 @@
-2025-07-21 17:09:38.121 | INFO     | scanner.security_checker:run_full_scan:22 - Connected to 95.217.235.188 successfully.
-2025-07-21 17:09:38.122 | INFO     | scanner.security_checker:run_full_scan:24 - Starting port scan...
-2025-07-21 17:10:49.073 | INFO     | scanner.security_checker:run_full_scan:26 - Open ports found: [21, 53, 80, 152, 158, 162, 168, 169, 174, 178, 179, 263, 268, 269, 282, 289, 308, 309, 312, 319, 325, 328, 392, 409, 443, 888]

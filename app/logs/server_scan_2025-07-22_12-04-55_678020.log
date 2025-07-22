@@ -1,4 +1,0 @@
-2025-07-22 12:05:00.494 | INFO     | scanner.security_checker:run_full_scan:21 - Using password authentication for root@95.217.235.188
-2025-07-22 12:05:05.796 | INFO     | scanner.security_checker:run_full_scan:56 - Connected to 95.217.235.188 successfully.
-2025-07-22 12:05:05.796 | INFO     | scanner.security_checker:run_full_scan:60 - Starting port scan...
-2025-07-22 12:05:11.002 | ERROR    | scanner.security_checker:run_full_scan:149 - Failed to connect or scan: list indices must be integers or slices, not str

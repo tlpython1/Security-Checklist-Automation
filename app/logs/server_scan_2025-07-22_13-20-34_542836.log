@@ -1,4 +1,0 @@
-2025-07-22 13:20:43.767 | INFO     | scanner.security_checker:run_full_scan:21 - Using password authentication for icarenetad@208.109.245.132
-2025-07-22 13:20:49.482 | INFO     | scanner.security_checker:run_full_scan:56 - Connected to 208.109.245.132 successfully.
-2025-07-22 13:20:49.482 | INFO     | scanner.security_checker:run_full_scan:60 - Starting port scan...
-2025-07-22 13:21:36.002 | ERROR    | scanner.security_checker:run_full_scan:145 - Failed to connect or scan: name 'scan_host' is not defined
