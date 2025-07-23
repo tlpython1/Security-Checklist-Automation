@@ -2,15 +2,194 @@
 <html>
 <head>
     <title>Server Security Scanner</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: inline-block; width: 150px; font-weight: bold; }
+        input, select { padding: 8px; margin-left: 10px; width: 250px; }
+        .submit-btn { background-color: #4CAF50; color: white; padding: 10px 20px; border: none; cursor: pointer; }
+        .optional { color: #666; font-size: 12px; }
+    </style>
 </head>
 <body>
-    <h1>Enter Server Details</h1>
-    <form action="/scan" method="post">
-        <label>Host:</label><input type="text" name="host" required><br>
-        <label>Port:</label><input type="number" name="port" value="22" required><br>
-        <label>Username:</label><input type="text" name="username" required><br>
-        <label>Password:</label><input type="password" name="password" required><br>
-        <input type="submit" value="Scan Server">
+    <h1>Server Security Scanner</h1>
+    
+    <div id="scan-result" style="display: none; margin-top: 20px; padding: 15px; border: 1px solid #ddd; background-color: #f9f9f9;"></div>
+    
+    <form id="scan-form" action="/scan" method="post" enctype="multipart/form-data">
+        <div class="form-group">
+            <label for="host">Host:</label>
+            <input type="text" id="host" name="host" required placeholder="192.168.1.100">
+        </div>
+        
+        <div class="form-group">
+            <label for="port">Port:</label>
+            <input type="number" id="port" name="port" value="22" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="username">Username:</label>
+            <input type="text" id="username" name="username" required placeholder="root">
+        </div>
+        
+        <div class="form-group">
+            <label for="auth_method">Auth Method:</label>
+            <select id="auth_method" name="auth_method" onchange="toggleAuthFields()">
+                <option value="password">Password</option>
+                <option value="key">SSH Key</option>
+            </select>
+        </div>
+        
+        <div class="form-group" id="password_field">
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" placeholder="Enter password">
+        </div>
+        
+        <div class="form-group" id="ssh_key_field" style="display: none;">
+            <label for="ssh_key">SSH Key File:</label>
+            <input type="file" id="ssh_key" name="ssh_key" accept=".pem,.key,.ppk">
+        </div>
+        
+        <div class="form-group" id="key_passphrase_field" style="display: none;">
+            <label for="key_passphrase">Key Passphrase:</label>
+            <input type="password" id="key_passphrase" name="key_passphrase" placeholder="Enter passphrase (if required)">
+            <span class="optional">(optional)</span>
+        </div>
+        
+        <div class="form-group">
+            <label for="project_path">Project Path:</label>
+            <input type="text" id="project_path" name="project_path" value="/www/wwwroot/team1/damon/" placeholder="/var/www/html">
+        </div>
+        
+        <div class="form-group">
+            <label for="stack_name">Docker Stack Name:</label>
+            <input type="text" id="stack_name" name="stack_name" placeholder="myapp-stack">
+            <span class="optional">(optional - for Docker Swarm)</span>
+        </div>
+        
+        <div class="form-group">
+            <input type="submit" value="Start Security Scan" class="submit-btn">
+        </div>
     </form>
+
+    <div style="margin-top: 30px;">
+        <h3>Available Reports</h3>
+        <div id="reports-list">
+            <button type="button" onclick="loadReports()" style="padding: 8px 15px;">Refresh Reports List</button>
+            <div id="reports-container" style="margin-top: 10px;"></div>
+        </div>
+    </div>
+
+    <script>
+        function toggleAuthFields() {
+            const authMethod = document.getElementById('auth_method').value;
+            const passwordField = document.getElementById('password_field');
+            const sshKeyField = document.getElementById('ssh_key_field');
+            const keyPassphraseField = document.getElementById('key_passphrase_field');
+            
+            if (authMethod === 'password') {
+                passwordField.style.display = 'block';
+                sshKeyField.style.display = 'none';
+                keyPassphraseField.style.display = 'none';
+                document.getElementById('password').required = true;
+                document.getElementById('ssh_key').required = false;
+            } else {
+                passwordField.style.display = 'none';
+                sshKeyField.style.display = 'block';
+                keyPassphraseField.style.display = 'block';
+                document.getElementById('password').required = false;
+                document.getElementById('ssh_key').required = true;
+            }
+        }
+        
+        async function loadReports() {
+            try {
+                const response = await fetch('/reports');
+                const data = await response.json();
+                const container = document.getElementById('reports-container');
+                
+                if (data.reports && data.reports.length > 0) {
+                    container.innerHTML = '<h4>Available Security Reports:</h4>';
+                    data.reports.forEach(report => {
+                        const reportDiv = document.createElement('div');
+                        reportDiv.style.margin = '5px 0';
+                        reportDiv.innerHTML = `
+                            <a href="${report.download_url}" target="_blank" style="text-decoration: none; color: #007bff;">
+                                [PDF] ${report.filename}
+                            </a>
+                            <span style="color: #666; font-size: 12px; margin-left: 10px;">
+                                (${Math.round(report.size / 1024)} KB)
+                            </span>
+                        `;
+                        container.appendChild(reportDiv);
+                    });
+                } else {
+                    container.innerHTML = '<p style="color: #666;">No reports available yet. Run a scan to generate reports.</p>';
+                }
+            } catch (error) {
+                document.getElementById('reports-container').innerHTML = '<p style="color: #f00;">Error loading reports</p>';
+            }
+        }
+        
+        // Handle form submission with AJAX to show results
+        document.getElementById('scan-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const submitBtn = document.querySelector('.submit-btn');
+            
+            submitBtn.value = 'Scanning...';
+            submitBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/scan', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                const resultDiv = document.getElementById('scan-result');
+                
+                if (result.status === 'success') {
+                    let resultHtml = '<h3>Scan Results</h3>';
+                    resultHtml += `<p><strong>Host:</strong> ${result.host}</p>`;
+                    resultHtml += `<p><strong>Scan Time:</strong> ${result.scan_timestamp}</p>`;
+                    
+                    if (result.report_download_url) {
+                        resultHtml += `<p><strong>Report:</strong> <a href="${result.report_download_url}" target="_blank" style="color: #007bff; text-decoration: none;">[PDF] Download Security Report</a></p>`;
+                    } else if (result.report_path) {
+                        const reportFilename = result.report_path.split('/').pop();
+                        resultHtml += `<p><strong>Report:</strong> <a href="/download-report/${reportFilename}" target="_blank" style="color: #007bff; text-decoration: none;">[PDF] Download Security Report</a></p>`;
+                    }
+                    
+                    if (result.security_summary) {
+                        resultHtml += '<h4>Security Summary:</h4><ul>';
+                        for (const [key, value] of Object.entries(result.security_summary)) {
+                            resultHtml += `<li><strong>${key.replace('_', ' ')}:</strong> ${value}</li>`;
+                        }
+                        resultHtml += '</ul>';
+                    }
+                    
+                    resultDiv.innerHTML = resultHtml;
+                } else {
+                    resultDiv.innerHTML = `<h3 style="color: red;">Scan Failed</h3><p>${result.error}</p>`;
+                }
+                
+                resultDiv.style.display = 'block';
+                loadReports(); // Refresh the reports list
+                
+            } catch (error) {
+                document.getElementById('scan-result').innerHTML = '<h3 style="color: red;">Error</h3><p>Failed to perform scan</p>';
+                document.getElementById('scan-result').style.display = 'block';
+            }
+            
+            submitBtn.value = 'Start Security Scan';
+            submitBtn.disabled = false;
+        });
+        
+        // Initialize form on page load
+        toggleAuthFields();
+        loadReports();
+    </script>
 </body>
 </html>

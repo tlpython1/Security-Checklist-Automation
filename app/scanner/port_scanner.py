@@ -16,12 +16,13 @@ def get_common_ports():
         8070,  # HTTP Alternative
         8443,  # HTTPS Alternative
         8000,  # HTTP Development
-        3000,  # Node.js/React Development
-        4000,  # Development
+        3000,  # Laravel
+        4000,  # Ecom/Wordpress
         5000,  # Flask/Development
         9000,  # Various web services
         8009, #Python Commission,
-        7000, #Php MyAdmin,
+        8001,#Mysql in Docker,
+        7000, #PhpMyAdmin,
         
         # Remote Access
         22,    # SSH
@@ -46,6 +47,7 @@ def get_common_ports():
         1433,  # MS SQL Server
         27017, # MongoDB
         6379,  # Redis
+        6383,  # Redis (alternative port)
         11211, # Memcached
         
         # File Transfer

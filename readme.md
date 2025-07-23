@@ -6,11 +6,14 @@ A comprehensive security scanning tool that automates server security assessment
 
 - **Port Scanning**: Fast scanning of common ports with accessibility analysis
 - **Sensitive File Detection**: Identifies and checks security status of sensitive configuration files
+- **Laravel Security Analysis**: Comprehensive checks for Laravel applications (environment, caching, permissions)
+- **Node.js Security Analysis**: Complete security assessment for Node.js applications including Docker/Swarm support
 - **Docker Security**: Evaluates Docker container and image security configurations
+- **Docker Swarm Support**: Analyzes Docker Swarm stacks, services, secrets, and networks
 - **Firewall Analysis**: Checks UFW and iptables rules for port accessibility
-- **PDF Reports**: Generates detailed security assessment reports
+- **PDF Reports**: Generates detailed, professional security assessment reports
 - **SSH/Password Authentication**: Supports both SSH key and password authentication
-- **Web Interface**: RESTful API with comprehensive scanning endpoints
+- **Web Interface**: RESTful API with comprehensive scanning endpoints and report downloads
 
 ## 🚀 Quick Start
 
@@ -41,7 +44,28 @@ pip install -r requirements.txt
 ```
 
 4. Start the application:
+
+**Option 1: Using the startup script (Recommended)**
 ```bash
+# Linux/Mac
+./run_server.sh
+
+# Windows
+run_server.bat
+
+# Cross-platform Python script
+python3 start_server.py
+```
+
+**Option 2: Manual startup**
+```bash
+# Activate virtual environment
+source venv/bin/activate  # Linux/Mac
+# or
+venv\Scripts\activate.bat  # Windows
+
+# Start the server
+cd app
 uvicorn main:app --reload --host 0.0.0.0 --port 8081
 ```
 
@@ -50,15 +74,42 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8081
 http://localhost:8081/docs
 ```
 
-## 📋 API Endpoints
+## �️ Startup Scripts
+
+The project includes several startup scripts for convenience:
+
+### Linux/Mac Shell Script (`run_server.sh`)
+- Automatically creates and activates virtual environment
+- Installs dependencies if missing
+- Starts the FastAPI server with proper configuration
+- Provides colored output for better visibility
+
+### Windows Batch Script (`run_server.bat`)
+- Windows equivalent of the shell script
+- Handles virtual environment creation and activation
+- Installs missing dependencies automatically
+
+### Cross-Platform Python Script (`start_server.py`)
+- Works on all platforms (Linux, Mac, Windows)
+- Python-based startup with comprehensive error handling
+- Automatic dependency management
+- Colored terminal output for better user experience
+
+**Features of all startup scripts:**
+- ✅ Automatic virtual environment creation
+- ✅ Dependency installation and verification
+- ✅ Server configuration validation
+- ✅ Graceful error handling
+- ✅ Clean shutdown and cleanup
+
+## �📋 API Endpoints
 
 ### Security Scanning
 
-- `POST /scan/full` - Complete security scan
-- `POST /scan/quick` - Quick port and system scan
-- `POST /scan/ports` - Port scanning only
-- `POST /scan/files` - Sensitive file detection
-- `POST /scan/docker` - Docker security assessment
+- `POST /scan` - Complete security scan with PDF report generation
+- `GET /download-report/{filename}` - Download generated PDF report
+- `GET /reports` - List all available security reports
+- `GET /` - Web interface for easy scanning
 
 ### Example Request
 
@@ -68,7 +119,27 @@ http://localhost:8081/docs
   "port": 22,
   "username": "admin",
   "password": "your_password",
-  "project_path": "/var/www/html"
+  "project_path": "/var/www/html/myapp",
+  "stack_name": "myapp-production"
+}
+```
+
+### Example Response
+
+```json
+{
+  "status": "success",
+  "host": "192.168.1.100",
+  "scan_timestamp": "2025-07-23 12:30:45",
+  "report_path": "/path/to/reports/security_report_192.168.1.100_20250723_123045.pdf",
+  "report_download_url": "/download-report/security_report_192.168.1.100_20250723_123045.pdf",
+  "report_filename": "security_report_192.168.1.100_20250723_123045.pdf",
+  "security_summary": {
+    "sensitive_files_count": 2,
+    "laravel_security_issues": 1,
+    "nodejs_security_issues": 3,
+    "docker_issues_count": 0
+  }
 }
 ```
 
@@ -87,19 +158,26 @@ http://localhost:8081/docs
 **Databases**: 3306, 5432, 27017, 6379
 **Mail Services**: 25, 110, 143, 587, 993, 995
 
-## 📊 Security Checks
+## 📊 Security Report Features
 
-### File Security Assessment
-- **Permissions**: Checks world-readable/writable status
-- **Public Accessibility**: Verifies if files are web-accessible
-- **Protection Rules**: Analyzes .htaccess and nginx configurations
-- **Security Status**: Categorizes as secure, warning, or critical
+### Comprehensive PDF Reports
+- **Executive Summary**: Overview of scan results and security status
+- **Port Analysis**: Detailed breakdown of open ports and accessibility
+- **Sensitive Files**: Security assessment of configuration files
+- **Laravel Analysis**: Framework-specific security checks and recommendations
+- **Node.js Analysis**: JavaScript runtime security evaluation
+- **Docker Assessment**: Container and orchestration security review
+- **System Information**: Server details and configuration
+- **Security Recommendations**: Actionable steps to improve security
 
-### Port Accessibility Analysis
-- **Firewall Rules**: UFW and iptables rule analysis
-- **Global Access**: Identifies publicly accessible ports
-- **Restricted Access**: Lists IP-restricted services
-- **Service Detection**: Identifies running services and versions
+### Report Sections Include:
+- Color-coded security status (Critical/Warning/Secure)
+- Detailed vulnerability descriptions
+- Step-by-step remediation instructions
+- Performance optimization recommendations
+- Docker and Swarm configuration analysis
+- Environment variable security checks
+- Package vulnerability assessments
 
 ## 🏗️ Project Structure
 
@@ -112,10 +190,19 @@ security-checklist-automation/
 │   │   ├── file_checker.py     # Sensitive file detection
 │   │   ├── docker_checker.py   # Docker security checks
 │   │   ├── security_checker.py # Main security scanner
+│   │   ├── laravel_checker.py  # Laravel security analysis
+│   │   ├── node_checker.py     # Node.js security analysis
 │   │   └── report_generator.py # PDF report generation
+│   ├── templates/
+│   │   └── index.html          # Web interface
 │   └── utils/
 │       └── logger.py           # Logging configuration
-├── requirements.txt            # Python dependencies
+├── reports/                    # Generated PDF reports (auto-created)
+├── venv/                       # Virtual environment (auto-created)
+├── run_server.sh              # Linux/Mac startup script
+├── run_server.bat             # Windows startup script
+├── start_server.py            # Cross-platform Python startup script
+├── requirements.txt           # Python dependencies
 └── readme.md                  # This file
 ```
 

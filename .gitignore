@@ -3,3 +3,21 @@ __pycache__
 /app/__pycache__
 /app/logs/*
 !/app/logs/.gitkeep
+
+# Security Reports
+reports/
+*.pdf
+
+# Temporary files
+.tmp/
+temp/
+tmp/
+
+# SSH Keys
+*.pem
+*.key
+*.ppk
+
+# OS
+.DS_Store
+Thumbs.db

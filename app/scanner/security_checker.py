@@ -2,6 +2,8 @@ from fabric import Connection
 from scanner.port_scanner import get_listening_ports_fast, get_port_accessibility_summary
 from scanner.file_checker import check_sensitive_files
 from scanner.docker_checker import check_docker_security
+from scanner.laravel_checker import check_laravel_security
+from scanner.node_checker import check_nodejs_security
 from scanner.report_generator import generate_pdf_report
 from utils.logger import logger
 import time
@@ -10,8 +12,18 @@ import time
 
 #Security Checker Module
 #This module provides functionality to perform a full security scan on a server. It connects to the server via SSH, scans for open ports, checks for sensitive files, and evaluates Docker security configurations. Finally, it generates a PDF report of the findings.
-def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_passphrase=None, comprehensive_scan=False, project_path='/www/wwwroot/team1/damon/'):
+def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_passphrase=None, comprehensive_scan=False, project_path='/www/wwwroot/team1/damon/', stack_name=None):
     try:
+        # Extract stack name from project path if not provided
+        if not stack_name and project_path:
+            # Extract the last directory name from the path
+            path_parts = project_path.rstrip('/').split('/')
+            if path_parts:
+                extracted_name = path_parts[-1]
+                # Convert to uppercase as stack names are in capital letters
+                stack_name = extracted_name.upper()
+                logger.info(f"Extracted stack name from project path: {stack_name}")
+        
         # Set up connection parameters based on authentication method
         connect_kwargs = {}
         
@@ -39,6 +51,8 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
             'connection_method': 'SSH Key' if ssh_key_path else 'Password',
             'open_ports': {},
             'sensitive_files': [],
+            'laravel_security': {},
+            'nodejs_security': {},
             'docker_issues': [],
             'system_info': {},
             'security_summary': {}
@@ -69,7 +83,7 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
 
       
             
-        # scan_results['open_ports'] = open_ports
+        scan_results['open_ports'] = open_ports
        
             
         # 2. System information gathering
@@ -115,6 +129,48 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
             logger.error(f"Error checking sensitive files: {e}")
             scan_results['sensitive_files'] = [f"Error: {str(e)}"]
 
+        # 3.5. Check Laravel-specific security
+        logger.info("Checking Laravel security configurations...")
+        try:
+            laravel_security = check_laravel_security(conn, project_path=project_path)
+            scan_results['laravel_security'] = laravel_security
+            
+            if laravel_security.get('laravel_found', False):
+                critical_issues = len(laravel_security.get('security_summary', {}).get('critical_issues', []))
+                warnings = len(laravel_security.get('security_summary', {}).get('warnings', []))
+                recommendations = len(laravel_security.get('security_summary', {}).get('recommendations', []))
+                
+                logger.info(f"Laravel security check completed - Critical: {critical_issues}, Warnings: {warnings}, Recommendations: {recommendations}")
+            else:
+                logger.info("No Laravel project detected")
+        except Exception as e:
+            logger.error(f"Error checking Laravel security: {e}")
+            scan_results['laravel_security'] = {'error': str(e)}
+
+        # 3.6. Check Node.js-specific security
+        logger.info("Checking Node.js security configurations...")
+        try:
+            nodejs_security = check_nodejs_security(conn, project_path=project_path, stack_name=stack_name)
+            scan_results['nodejs_security'] = nodejs_security
+            
+            if nodejs_security.get('nodejs_found', False):
+                critical_issues = len(nodejs_security.get('security_summary', {}).get('critical_issues', []))
+                warnings = len(nodejs_security.get('security_summary', {}).get('warnings', []))
+                recommendations = len(nodejs_security.get('security_summary', {}).get('recommendations', []))
+                
+                logger.info(f"Node.js security check completed - Critical: {critical_issues}, Warnings: {warnings}, Recommendations: {recommendations}")
+                
+                # Log Docker/Swarm specific findings
+                if stack_name and nodejs_security.get('swarm_config', {}).get('stack_deployed', False):
+                    logger.info(f"Docker Swarm stack '{stack_name}' detected and analyzed")
+                elif nodejs_security.get('docker_config', {}).get('container_running', False):
+                    logger.info("Docker container(s) detected and analyzed")
+            else:
+                logger.info("No Node.js project detected")
+        except Exception as e:
+            logger.error(f"Error checking Node.js security: {e}")
+            scan_results['nodejs_security'] = {'error': str(e)}
+
         # 4. Check Docker security
         logger.info("Checking Docker security...")
         try:
@@ -130,19 +186,21 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
             'total_open_ports': len(open_ports.get('open_ports', [])) if isinstance(open_ports, dict) else 0,
             'high_risk_ports': [port for port in (open_ports.get('open_ports', []) if isinstance(open_ports, dict) else []) if port in [22, 23, 80, 443, 3389, 5900]],
             'sensitive_files_count': len(scan_results['sensitive_files']),
+            'laravel_security_issues': len(scan_results.get('laravel_security', {}).get('security_summary', {}).get('critical_issues', [])),
+            'nodejs_security_issues': len(scan_results.get('nodejs_security', {}).get('security_summary', {}).get('critical_issues', [])),
             'docker_issues_count': len(scan_results['docker_issues']) if isinstance(scan_results['docker_issues'], list) else 0,
             'scan_type': 'Comprehensive' if comprehensive_scan else 'Standard'
         }
 
         # 6. Generate report
-        # try:
-        #     logger.info("Generating PDF report...")
-        #     report_path = generate_pdf_report(scan_results)
-        #     scan_results['report_path'] = report_path
-        #     logger.info(f"Report generated at: {report_path}")
-        # except Exception as e:
-        #     logger.error(f"Error generating report: {e}")
-        #     scan_results['report_error'] = str(e)
+        try:
+            logger.info("Generating PDF report...")
+            report_path = generate_pdf_report(scan_results)
+            scan_results['report_path'] = report_path
+            logger.info(f"Report generated at: {report_path}")
+        except Exception as e:
+            logger.error(f"Error generating report: {e}")
+            scan_results['report_error'] = str(e)
             
         return scan_results
             
@@ -185,7 +243,7 @@ def run_quick_scan(host, port, username, password=None, ssh_key_path=None, key_p
 
             # Quick port scan
             logger.info("Running quick port scan...")
-            open_ports = get_open_ports_with_remote_ips(host)
+            open_ports = get_listening_ports_fast(host)
             
             # Basic system info
             os_info = conn.run("uname -a", hide=True).stdout.strip()
