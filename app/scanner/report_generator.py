@@ -898,6 +898,157 @@ def generate_pdf_report(scan_data):
                 for rec in recommendations:
                     pdf.add_bullet_point(rec)
     
+    # Firewall Security Section
+    firewall_security = scan_data.get('firewall_security', {})
+    if firewall_security and not firewall_security.get('error'):
+        pdf.add_page()
+        pdf.add_title("Firewall & Port Security Analysis")
+        
+        # Firewall overview
+        target_host = firewall_security.get('target_host', 'Unknown')
+        office_ip = firewall_security.get('office_ip', 'Unknown')
+        firewall_status = firewall_security.get('firewall_status', 'unknown')
+        
+        pdf.add_subtitle("Firewall Configuration Overview")
+        pdf.add_text(f"Target Host: {target_host}")
+        pdf.add_text(f"Office IP: {office_ip}")
+        
+        # Firewall status
+        if firewall_status == 'secure':
+            pdf.add_status_badge('secure', "Firewall configuration is secure")
+        elif firewall_status == 'warning':
+            pdf.add_status_badge('warning', "Firewall configuration has warnings")
+        elif firewall_status == 'critical':
+            pdf.add_status_badge('critical', "Firewall configuration has critical issues")
+        else:
+            pdf.add_status_badge('info', "Firewall status unknown")
+        
+        # Server local IP
+        server_local_ip = firewall_security.get('server_local_ip', 'Unknown')
+        if server_local_ip != 'unknown':
+            pdf.add_text(f"Server Local IP: {server_local_ip}")
+        
+        # Firewall rules summary
+        iptables_rules = firewall_security.get('iptables_rules', [])
+        ufw_status = firewall_security.get('ufw_status')
+        
+        if iptables_rules:
+            pdf.add_status_badge('info', f"iptables rules found: {len(iptables_rules)} rules")
+        
+        if ufw_status:
+            if 'Status: active' in ufw_status:
+                pdf.add_status_badge('secure', "UFW firewall is active")
+            else:
+                pdf.add_status_badge('warning', "UFW firewall status unclear")
+        
+        if not iptables_rules and not ufw_status:
+            pdf.add_status_badge('warning', "No firewall configuration detected")
+        
+        # Port accessibility analysis
+        port_accessibility = firewall_security.get('port_accessibility', {})
+        if port_accessibility:
+            pdf.add_subtitle("Port Accessibility Analysis")
+            
+            public_ports = firewall_security.get('public_ports', [])
+            pdf.add_text(f"Public ports (should be accessible from anywhere): {', '.join(map(str, public_ports))}")
+            
+            # Analyze each port
+            secure_ports = 0
+            warning_ports = 0
+            critical_ports = 0
+            
+            for port, port_data in port_accessibility.items():
+                is_public_port = port_data.get('is_public_port', False)
+                security_status = port_data.get('security_status', 'unknown')
+                accessibility = port_data.get('accessibility', {})
+                
+                port_info = f"Port {port}"
+                if is_public_port:
+                    port_info += " (Public)"
+                
+                if security_status == 'secure':
+                    pdf.add_status_badge('secure', f"{port_info}: Properly configured")
+                    secure_ports += 1
+                elif security_status == 'warning':
+                    pdf.add_status_badge('warning', f"{port_info}: Configuration warning")
+                    warning_ports += 1
+                elif security_status == 'critical':
+                    pdf.add_status_badge('critical', f"{port_info}: Security issue")
+                    critical_ports += 1
+                elif security_status == 'public':
+                    pdf.add_status_badge('info', f"{port_info}: Public access (expected)")
+                else:
+                    pdf.add_status_badge('info', f"{port_info}: Status unknown")
+                
+                # Show accessibility details
+                office_access = accessibility.get('office', {}).get('accessible', False)
+                external_access = accessibility.get('external', {}).get('accessible', False)
+                local_access = accessibility.get('local', {}).get('accessible', True)
+                
+                access_details = []
+                if office_access:
+                    access_details.append("Office ✓")
+                if external_access:
+                    access_details.append("External ✓")
+                if local_access:
+                    access_details.append("Local ✓")
+                
+                if access_details:
+                    pdf.add_text(f"  Access from: {', '.join(access_details)}")
+            
+            # Port security summary
+            pdf.add_subtitle("Port Security Summary")
+            total_ports = len(port_accessibility)
+            pdf.add_text(f"Total ports analyzed: {total_ports}")
+            
+            if secure_ports > 0:
+                pdf.add_status_badge('secure', f"Secure ports: {secure_ports}")
+            if warning_ports > 0:
+                pdf.add_status_badge('warning', f"Ports with warnings: {warning_ports}")
+            if critical_ports > 0:
+                pdf.add_status_badge('critical', f"Ports with critical issues: {critical_ports}")
+        
+        # Security issues
+        security_issues = firewall_security.get('security_issues', [])
+        if security_issues:
+            pdf.add_subtitle("Critical Security Issues")
+            for issue in security_issues:
+                pdf.add_status_badge('critical', issue)
+        
+        # Warnings
+        warnings = firewall_security.get('warnings', [])
+        if warnings:
+            pdf.add_subtitle("Security Warnings")
+            for warning in warnings:
+                pdf.add_status_badge('warning', warning)
+        
+        # Firewall recommendations
+        recommendations = firewall_security.get('recommendations', [])
+        if recommendations:
+            pdf.add_subtitle("Firewall Recommendations")
+            for rec in recommendations:
+                pdf.add_bullet_point(rec)
+        
+        # Configuration recommendations
+        config_recommendations = firewall_security.get('configuration_recommendations', [])
+        if config_recommendations:
+            pdf.add_subtitle("Firewall Configuration Commands")
+            pdf.add_text("Run these commands to improve firewall security:")
+            
+            # Group commands by firewall type
+            ufw_commands = [cmd for cmd in config_recommendations if 'ufw' in cmd and not cmd.startswith('#')]
+            iptables_commands = [cmd for cmd in config_recommendations if 'iptables' in cmd and not cmd.startswith('#')]
+            
+            if ufw_commands:
+                pdf.add_text("UFW Commands:")
+                for cmd in ufw_commands[:10]:  # Limit to first 10 commands
+                    pdf.add_text(f"  {cmd}")
+            
+            if iptables_commands:
+                pdf.add_text("iptables Commands:")
+                for cmd in iptables_commands[:10]:  # Limit to first 10 commands
+                    pdf.add_text(f"  {cmd}")
+    
     # Docker Issues Section
     docker_issues = scan_data.get('docker_issues', [])
     if docker_issues:
@@ -934,6 +1085,10 @@ def generate_pdf_report(scan_data):
     python_security = scan_data.get('python_security', {})
     if python_security.get('security_summary', {}).get('recommendations'):
         all_recommendations.extend([f"Python: {rec}" for rec in python_security['security_summary']['recommendations']])
+    
+    firewall_security = scan_data.get('firewall_security', {})
+    if firewall_security.get('recommendations'):
+        all_recommendations.extend([f"Firewall: {rec}" for rec in firewall_security['recommendations']])
     
     # General recommendations
     general_recommendations = [

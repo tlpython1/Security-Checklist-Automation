@@ -474,7 +474,7 @@
                 <div class="progress-bar">
                     <div class="progress-fill" id="progress-fill"></div>
                 </div>
-                <div class="progress-step" id="progress-step">Step 0 of 8</div>
+                <div class="progress-step" id="progress-step">Step 0 of 11</div>
                 <div class="progress-status running" id="progress-status">
                     <span id="progress-message">🚀 Starting security scan...</span>
                 </div>
@@ -618,11 +618,13 @@
         });
         
         function startProgressPolling(scanId, finalResult) {
+            console.log('DEBUG: Starting progress polling for scan ID:', scanId);
             const progressInterval = setInterval(async () => {
                 try {
                     const response = await fetch(`/progress/${scanId}`);
                     const progress = await response.json();
                     
+                    console.log('DEBUG: Received progress update:', progress);
                     updateProgressUI(progress);
                     
                     // Stop polling when scan is complete
@@ -637,6 +639,8 @@
         }
         
         function updateProgressUI(progress) {
+            console.log('DEBUG: Updating UI with progress:', progress);
+            
             const progressFill = document.getElementById('progress-fill');
             const progressText = document.getElementById('progress-text');
             const progressStep = document.getElementById('progress-step');
@@ -649,8 +653,10 @@
             
             // Update text
             progressText.textContent = `${percent}% Complete`;
-            progressStep.textContent = `Step ${progress.step || 0} of ${progress.total_steps || 8}`;
+            progressStep.textContent = `Step ${progress.step || 0} of ${progress.total_steps || 11}`;
             progressMessage.textContent = progress.message || 'Processing...';
+            
+            console.log('DEBUG: Updated progress bar to', percent + '%', 'and step to', `${progress.step || 0}/${progress.total_steps || 11}`);
             
             // Update status class
             progressStatus.className = `progress-status ${progress.status || 'running'}`;
@@ -720,25 +726,50 @@
                     resultHtml += '<h4 style="margin-top: 20px; margin-bottom: 10px;">📊 Security Summary:</h4>';
                     
                     const summary = result.security_summary;
-                    const items = [
-                        { label: 'Open Ports', value: summary.total_open_ports, icon: '🔌' },
-                        { label: 'High Risk Ports', value: Array.isArray(summary.high_risk_ports) ? summary.high_risk_ports.length : summary.high_risk_ports, icon: '⚠️' },
-                        { label: 'Sensitive Files', value: summary.sensitive_files_count, icon: '📄' },
-                        { label: 'Laravel Issues', value: summary.laravel_security_issues, icon: '🅛' },
-                        { label: 'Node.js Issues', value: summary.nodejs_security_issues, icon: '📗' },
-                        { label: 'Python Issues', value: summary.python_security_issues || 0, icon: '🐍' },
-                        { label: 'Docker Issues', value: summary.docker_issues_count, icon: '🐳' }
-                    ];
-                    
-                    items.forEach(item => {
-                        const statusClass = item.value > 0 ? 'status-warning' : 'status-success';
-                        resultHtml += `
-                            <div class="result-item">
-                                <span class="status-indicator ${statusClass}"></span>
-                                ${item.icon} <strong>${item.label}:</strong> ${item.value}
-                            </div>
-                        `;
-                    });
+                        const items = [
+                            { label: 'Open Ports', value: summary.total_open_ports, icon: '🔌' },
+                            { label: 'High Risk Ports', value: Array.isArray(summary.high_risk_ports) ? summary.high_risk_ports.length : summary.high_risk_ports, icon: '⚠️' },
+                            { label: 'Sensitive Files', value: summary.sensitive_files_count, icon: '📄' },
+                            { label: 'Laravel Issues', value: summary.laravel_security_issues, icon: '🅛' },
+                            { label: 'Node.js Issues', value: summary.nodejs_security_issues, icon: '📗' },
+                            { label: 'Python Issues', value: summary.python_security_issues || 0, icon: '🐍' },
+                            { label: 'Firewall Issues', value: summary.firewall_security_issues || 0, icon: '�' },
+                            { label: 'Docker Issues', value: summary.docker_issues_count, icon: '🐳' }
+                        ];
+                        
+                        items.forEach(item => {
+                            const statusClass = item.value > 0 ? 'status-warning' : 'status-success';
+                            resultHtml += `
+                                <div class="result-item">
+                                    <span class="status-indicator ${statusClass}"></span>
+                                    ${item.icon} <strong>${item.label}:</strong> ${item.value}
+                                </div>
+                            `;
+                        });
+                        
+                        // Add firewall status if available
+                        if (summary.firewall_status) {
+                            let firewallStatusClass = 'status-success';
+                            let firewallStatusText = summary.firewall_status;
+                            
+                            if (summary.firewall_status === 'critical') {
+                                firewallStatusClass = 'status-error';
+                                firewallStatusText = 'Critical Issues';
+                            } else if (summary.firewall_status === 'warning') {
+                                firewallStatusClass = 'status-warning';
+                                firewallStatusText = 'Warnings Found';
+                            } else if (summary.firewall_status === 'secure') {
+                                firewallStatusClass = 'status-success';
+                                firewallStatusText = 'Secure';
+                            }
+                            
+                            resultHtml += `
+                                <div class="result-item">
+                                    <span class="status-indicator ${firewallStatusClass}"></span>
+                                    🔒 <strong>Firewall Status:</strong> ${firewallStatusText}
+                                </div>
+                            `;
+                        }
                 }
                 
                 resultDiv.innerHTML = resultHtml;

@@ -30,12 +30,23 @@ def generate_progress_stream(scan_id: str) -> Generator[str, None, None]:
         
         time.sleep(0.5)  # Check every 500ms
 
+@app.get("/debug/progress")
+async def debug_progress():
+    """Debug endpoint to see all scan progress"""
+    return {
+        "current_scans": scan_progress,
+        "total_scans": len(scan_progress)
+    }
+
 @app.get("/progress/{scan_id}")
 async def get_scan_progress(scan_id: str):
     """Get current scan progress as JSON"""
     if scan_id in scan_progress:
-        return scan_progress[scan_id]
+        progress_data = scan_progress[scan_id]
+        print(f"DEBUG: Returning progress for {scan_id}: {progress_data}")
+        return progress_data
     else:
+        print(f"DEBUG: Scan ID {scan_id} not found in progress dict. Available IDs: {list(scan_progress.keys())}")
         return {'status': 'not_found', 'message': 'Scan not found'}
 
 class ProgressCallback:
@@ -43,7 +54,7 @@ class ProgressCallback:
     def __init__(self, scan_id: str):
         self.scan_id = scan_id
         self.current_step = 0
-        self.total_steps = 8  # Adjust based on actual scan steps
+        self.total_steps = 11  # Updated: connection + authentication + connection_established + 8 scan steps
     
     def update(self, status: str, message: str, step_name: str = None):
         """Update progress with current status and message"""
@@ -51,6 +62,9 @@ class ProgressCallback:
             self.current_step += 1
         
         progress_percent = min(int((self.current_step / self.total_steps) * 100), 100)
+        
+        # Debug logging
+        print(f"DEBUG: Progress update - Step {self.current_step}/{self.total_steps} ({progress_percent}%): {message}")
         
         scan_progress[self.scan_id] = {
             'status': status,
@@ -110,10 +124,16 @@ async def scan_server(
         'status': 'starting',
         'message': '🚀 Starting security scan...',
         'step': 0,
-        'total_steps': 8,
+        'total_steps': 11,
         'progress_percent': 0,
         'current_operation': 'Initializing'
     }
+    
+    print(f"DEBUG: Initial progress set for {scan_id}: {scan_progress[scan_id]}")
+    
+    # Add small delay to ensure progress is set before polling starts
+    import asyncio
+    await asyncio.sleep(0.1)
     
     try:
         # Handle authentication based on method
@@ -123,7 +143,7 @@ async def scan_server(
                     'status': 'error',
                     'message': '❌ Password is required for password authentication',
                     'step': 0,
-                    'total_steps': 8,
+                    'total_steps': 11,
                     'progress_percent': 0,
                     'current_operation': 'Error'
                 }
@@ -143,7 +163,7 @@ async def scan_server(
                     'status': 'error',
                     'message': '❌ SSH key file is required for key authentication',
                     'step': 0,
-                    'total_steps': 8,
+                    'total_steps': 11,
                     'progress_percent': 0,
                     'current_operation': 'Error'
                 }
@@ -176,7 +196,7 @@ async def scan_server(
                 'status': 'error',
                 'message': '❌ Invalid authentication method',
                 'step': 0,
-                'total_steps': 8,
+                'total_steps': 11,
                 'progress_percent': 0,
                 'current_operation': 'Error'
             }
@@ -196,7 +216,7 @@ async def scan_server(
             'status': 'error',
             'message': f'❌ Unexpected error: {str(e)}',
             'step': 0,
-            'total_steps': 8,
+            'total_steps': 11,
             'progress_percent': 0,
             'current_operation': 'Error'
         }
@@ -207,49 +227,21 @@ def run_scan_with_progress(scan_id: str, host, port, username, password=None, ss
     callback = ProgressCallback(scan_id)
     
     try:
-        # Step 1: Connection
-        callback.update('running', f'🔌 Connecting to {host}:{port}...', 'connection')
+        # Initialize scan
+        callback.update('running', '� Initializing security scan...', 'initialization')
         
-        # Step 2: Authentication
-        auth_method = "SSH Key" if ssh_key_path else "Password"
-        callback.update('running', f'🔐 Authenticating with {auth_method}...', 'authentication')
-        
-        # Step 3: System Information
-        callback.update('running', '🖥️ Gathering system information...', 'system_info')
-        
-        # Step 4: Port Scanning
-        callback.update('running', '🔍 Scanning for open ports...', 'port_scan')
-        
-        # Step 5: File Analysis
-        callback.update('running', '📄 Analyzing sensitive files...', 'file_analysis')
-        
-        # Step 6: Framework Security
-        callback.update('running', '🔧 Checking Laravel/Node.js/Python security...', 'framework_security')
-        
-        # Step 7: Docker Analysis
-        if stack_name:
-            callback.update('running', f'🐳 Analyzing Docker Swarm stack: {stack_name}...', 'docker_analysis')
-        else:
-            callback.update('running', '🐳 Checking Docker configuration...', 'docker_analysis')
-        
-        # Step 8: Report Generation
-        callback.update('running', '📊 Generating security report...', 'report_generation')
-        
-        # Run the actual scan
+        # Run the actual scan with progress callback
         result = run_full_scan(
             host, port, username,
             password=password,
             ssh_key_path=ssh_key_path,
             key_passphrase=key_passphrase,
             project_path=project_path,
-            stack_name=stack_name
+            stack_name=stack_name,
+            progress_callback=callback  # Pass the callback to the scanner
         )
         
-        if result.get('status') == 'success':
-            callback.update('completed', '✅ Security scan completed successfully!', 'completed')
-        else:
-            callback.update('error', f'❌ Scan failed: {result.get("error", "Unknown error")}', 'error')
-        
+        # Progress completion is now handled inside the security checker
         return result
         
     except Exception as e:
