@@ -593,6 +593,7 @@ def check_nodejs_swarm_config(conn, stack_name):
         'stack_deployed': False,
         'services': [],
         'nodejs_services': [],
+        'nodejs_containers': [],
         'replicas': {},
         'networks': [],
         'secrets': [],
@@ -622,10 +623,36 @@ def check_nodejs_swarm_config(conn, stack_name):
                         swarm_checks['services'].append(service_name)
                         swarm_checks['replicas'][service_name] = replicas
                         
-                        # Check if it's a Node.js service (starts with user_backend)
-                        if service_name.startswith('user_backend'):
+                        # Check if it's a Node.js service (contains user_backend)
+                        if 'user_backend' in service_name.lower():
                             swarm_checks['nodejs_services'].append(service_name)
                             logger.info(f"Found Node.js service: {service_name}")
+            
+            # Also check running containers to find Node.js containers
+            containers_result = conn.run(f'docker ps | grep {stack_name}', hide=True, warn=True)
+            if containers_result.ok and containers_result.stdout.strip():
+                container_lines = containers_result.stdout.strip().split('\n')
+                nodejs_containers = []
+                
+                for line in container_lines:
+                    # Look for containers with user_backend in the name
+                    if 'user_backend' in line.lower():
+                        # Extract container name (last column in docker ps output)
+                        parts = line.split()
+                        if parts:
+                            container_name = parts[-1]  # Container name is typically the last column
+                            nodejs_containers.append(container_name)
+                            logger.info(f"Found Node.js container: {container_name}")
+                
+                # Store the found containers
+                swarm_checks['nodejs_containers'] = nodejs_containers
+                
+                # If we found containers but no services, containers might be the actual running instances
+                if nodejs_containers and not swarm_checks['nodejs_services']:
+                    swarm_checks['nodejs_services'] = nodejs_containers
+                    logger.info(f"Using containers as Node.js services: {nodejs_containers}")
+            else:
+                swarm_checks['nodejs_containers'] = []
             
             # Check stack networks
             networks_result = conn.run(f'docker network ls --filter "label=com.docker.stack.namespace={stack_name}" --format "{{{{.Name}}}}"', hide=True, warn=True)
@@ -675,19 +702,62 @@ def check_nodejs_swarm_config(conn, stack_name):
                 
                 # Additional checks for Node.js services
                 for service in swarm_checks['nodejs_services']:
-                    # Check service constraints and placement
-                    service_inspect = conn.run(f'docker service inspect {service} --format "{{{{json .Spec.TaskTemplate.Placement}}}}"', hide=True, warn=True)
-                    if service_inspect.ok and service_inspect.stdout.strip():
+                    # Check if this is actually a container name (not a service)
+                    if service in swarm_checks.get('nodejs_containers', []):
+                        # This is a container, perform container-specific checks
                         try:
-                            import json
-                            placement_info = json.loads(service_inspect.stdout.strip())
-                            if not placement_info.get('Constraints'):
-                                swarm_checks['recommendations'].append(f'Consider adding placement constraints for service {service}')
-                        except:
-                            pass
+                            # Check if container is running Node.js
+                            node_check = conn.run(f'docker exec {service} node --version 2>/dev/null || echo "NO_NODE"', hide=True, warn=True)
+                            if node_check.ok and 'NO_NODE' not in node_check.stdout:
+                                node_version = node_check.stdout.strip()
+                                logger.info(f"Container {service} running Node.js {node_version}")
+                                swarm_checks[f'nodejs_version_{service}'] = node_version
+                            
+                            # Check for package.json and security packages
+                            package_check = conn.run(f'docker exec {service} find /app -name "package.json" -type f 2>/dev/null | head -1', hide=True, warn=True)
+                            if package_check.ok and package_check.stdout.strip():
+                                package_path = package_check.stdout.strip()
+                                
+                                # Check for security packages
+                                security_check = conn.run(f'docker exec {service} cat {package_path} | grep -E "(helmet|cors|bcrypt|express-rate-limit)"', hide=True, warn=True)
+                                if not security_check.ok or not security_check.stdout.strip():
+                                    swarm_checks['security_issues'].append(f'Container {service} missing security packages (helmet, cors, bcrypt, rate-limiting)')
+                                
+                                # Check for npm audit
+                                audit_check = conn.run(f'docker exec {service} npm audit --json 2>/dev/null || echo "AUDIT_FAILED"', hide=True, warn=True)
+                                if audit_check.ok and 'AUDIT_FAILED' not in audit_check.stdout:
+                                    try:
+                                        import json
+                                        audit_data = json.loads(audit_check.stdout)
+                                        vulnerabilities = audit_data.get('metadata', {}).get('vulnerabilities', {})
+                                        if isinstance(vulnerabilities, dict):
+                                            total_vulns = sum(vulnerabilities.values())
+                                            if total_vulns > 0:
+                                                swarm_checks['security_issues'].append(f'Container {service} has {total_vulns} npm security vulnerabilities')
+                                    except:
+                                        pass
+                            
+                            # Check if running as root
+                            user_check = conn.run(f'docker exec {service} whoami 2>/dev/null || echo "UNKNOWN"', hide=True, warn=True)
+                            if user_check.ok and 'root' in user_check.stdout.strip():
+                                swarm_checks['security_issues'].append(f'Container {service} running as root user')
+                                
+                        except Exception as e:
+                            logger.warning(f"Could not inspect container {service}: {e}")
+                    else:
+                        # This is a service, check service constraints and placement
+                        service_inspect = conn.run(f'docker service inspect {service} --format "{{{{json .Spec.TaskTemplate.Placement}}}}" 2>/dev/null', hide=True, warn=True)
+                        if service_inspect.ok and service_inspect.stdout.strip():
+                            try:
+                                import json
+                                placement_info = json.loads(service_inspect.stdout.strip())
+                                if not placement_info.get('Constraints'):
+                                    swarm_checks['recommendations'].append(f'Consider adding placement constraints for service {service}')
+                            except:
+                                pass
             else:
-                swarm_checks['recommendations'].append('No Node.js services (user_backend*) found in the stack')
-                logger.info("No Node.js services found in the stack")
+                swarm_checks['recommendations'].append(f'No Node.js services (user_backend*) found in stack {stack_name}')
+                logger.info(f"No Node.js services found in stack {stack_name}")
         
         else:
             swarm_checks['stack_deployed'] = False

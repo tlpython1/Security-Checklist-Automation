@@ -4,6 +4,7 @@ from scanner.file_checker import check_sensitive_files
 from scanner.docker_checker import check_docker_security
 from scanner.laravel_checker import check_laravel_security
 from scanner.node_checker import check_nodejs_security
+from scanner.python_checker import check_python_security
 from scanner.report_generator import generate_pdf_report
 from utils.logger import logger
 import time
@@ -53,6 +54,7 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
             'sensitive_files': [],
             'laravel_security': {},
             'nodejs_security': {},
+            'python_security': {},
             'docker_issues': [],
             'system_info': {},
             'security_summary': {}
@@ -171,6 +173,31 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
             logger.error(f"Error checking Node.js security: {e}")
             scan_results['nodejs_security'] = {'error': str(e)}
 
+        # 3.7. Check Python-specific security
+        logger.info("Checking Python security configurations...")
+        try:
+            python_security = check_python_security(conn, project_path=project_path, stack_name=stack_name)
+            scan_results['python_security'] = python_security
+            
+            if python_security.get('python_found', False):
+                critical_issues = len(python_security.get('security_summary', {}).get('critical_issues', []))
+                warnings = len(python_security.get('security_summary', {}).get('warnings', []))
+                recommendations = len(python_security.get('security_summary', {}).get('recommendations', []))
+                
+                logger.info(f"Python security check completed - Critical: {critical_issues}, Warnings: {warnings}, Recommendations: {recommendations}")
+                
+                # Log Docker/Swarm specific findings for Python
+                if stack_name and python_security.get('swarm_config', {}).get('stack_deployed', False):
+                    python_services = python_security.get('swarm_config', {}).get('python_services', [])
+                    logger.info(f"Docker Swarm Python services found: {python_services}")
+                elif python_security.get('docker_config', {}).get('container_running', False):
+                    logger.info("Python Docker container(s) detected and analyzed")
+            else:
+                logger.info("No Python project detected")
+        except Exception as e:
+            logger.error(f"Error checking Python security: {e}")
+            scan_results['python_security'] = {'error': str(e)}
+
         # 4. Check Docker security
         logger.info("Checking Docker security...")
         try:
@@ -188,6 +215,7 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
             'sensitive_files_count': len(scan_results['sensitive_files']),
             'laravel_security_issues': len(scan_results.get('laravel_security', {}).get('security_summary', {}).get('critical_issues', [])),
             'nodejs_security_issues': len(scan_results.get('nodejs_security', {}).get('security_summary', {}).get('critical_issues', [])),
+            'python_security_issues': len(scan_results.get('python_security', {}).get('security_summary', {}).get('critical_issues', [])),
             'docker_issues_count': len(scan_results['docker_issues']) if isinstance(scan_results['docker_issues'], list) else 0,
             'scan_type': 'Comprehensive' if comprehensive_scan else 'Standard'
         }

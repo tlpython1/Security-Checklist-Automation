@@ -4,9 +4,85 @@ from fastapi.templating import Jinja2Templates
 from scanner.security_checker import run_full_scan
 import os
 import tempfile
+import json
+import asyncio
+import time
+from typing import Generator
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
+
+# Global dictionary to store scan progress
+scan_progress = {}
+
+def generate_progress_stream(scan_id: str) -> Generator[str, None, None]:
+    """Generate Server-Sent Events for scan progress"""
+    import time
+    
+    while True:
+        if scan_id in scan_progress:
+            progress_data = scan_progress[scan_id]
+            yield f"data: {json.dumps(progress_data)}\n\n"
+            
+            # If scan is complete, clean up and break
+            if progress_data.get('status') in ['completed', 'error']:
+                break
+        
+        time.sleep(0.5)  # Check every 500ms
+
+@app.get("/progress/{scan_id}")
+async def get_scan_progress(scan_id: str):
+    """Get current scan progress as JSON"""
+    if scan_id in scan_progress:
+        return scan_progress[scan_id]
+    else:
+        return {'status': 'not_found', 'message': 'Scan not found'}
+
+class ProgressCallback:
+    """Callback class to update scan progress"""
+    def __init__(self, scan_id: str):
+        self.scan_id = scan_id
+        self.current_step = 0
+        self.total_steps = 8  # Adjust based on actual scan steps
+    
+    def update(self, status: str, message: str, step_name: str = None):
+        """Update progress with current status and message"""
+        if step_name:
+            self.current_step += 1
+        
+        progress_percent = min(int((self.current_step / self.total_steps) * 100), 100)
+        
+        scan_progress[self.scan_id] = {
+            'status': status,
+            'message': message,
+            'step': self.current_step,
+            'total_steps': self.total_steps,
+            'progress_percent': progress_percent,
+            'current_operation': step_name or 'Processing...'
+        }
+
+def run_scan_with_progress(scan_id: str, *args, **kwargs):
+    """Run scan with progress updates"""
+    callback = ProgressCallback(scan_id)
+    
+    try:
+        # Update progress throughout the scan
+        callback.update('running', '🔍 Initializing security scan...', 'initialization')
+        
+        # Note: We'll need to modify the security checker to accept callbacks
+        # For now, we'll simulate progress updates
+        result = run_full_scan(*args, **kwargs)
+        
+        if result.get('status') == 'success':
+            callback.update('completed', f'✅ Scan completed successfully! Report generated.', 'completed')
+        else:
+            callback.update('error', f'❌ Scan failed: {result.get("error", "Unknown error")}', 'error')
+        
+        return result
+        
+    except Exception as e:
+        callback.update('error', f'❌ Scan failed with error: {str(e)}', 'error')
+        return {'status': 'failed', 'error': str(e)}
 
 @app.get("/", response_class=HTMLResponse)
 def read_form(request: Request):
@@ -25,41 +101,160 @@ async def scan_server(
     project_path: str = Form('/www/wwwroot/team1/damon/'),
     stack_name: str = Form(None)  # Docker Swarm stack name (optional)
 ):
-    # Handle authentication based on method
-    if auth_method == "password":
-        if not password:
-            return {"error": "Password is required for password authentication"}
-        result = run_full_scan(host, port, username, password=password, project_path=project_path, stack_name=stack_name)
+    # Generate unique scan ID
+    import time
+    scan_id = f"scan_{int(time.time() * 1000)}"
     
-    elif auth_method == "key":
-        if not ssh_key:
-            return {"error": "SSH key file is required for key authentication"}
+    # Initialize progress
+    scan_progress[scan_id] = {
+        'status': 'starting',
+        'message': '🚀 Starting security scan...',
+        'step': 0,
+        'total_steps': 8,
+        'progress_percent': 0,
+        'current_operation': 'Initializing'
+    }
+    
+    try:
+        # Handle authentication based on method
+        if auth_method == "password":
+            if not password:
+                scan_progress[scan_id] = {
+                    'status': 'error',
+                    'message': '❌ Password is required for password authentication',
+                    'step': 0,
+                    'total_steps': 8,
+                    'progress_percent': 0,
+                    'current_operation': 'Error'
+                }
+                return {"error": "Password is required for password authentication", "scan_id": scan_id}
+            
+            # Run scan in background with progress updates
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, 
+                run_scan_with_progress,
+                scan_id, host, port, username,
+                password, None, None, project_path, stack_name
+            )
         
-        # Save uploaded SSH key to temporary file
-        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".pem") as temp_key:
-            content = await ssh_key.read()
-            temp_key.write(content)
-            temp_key_path = temp_key.name
+        elif auth_method == "key":
+            if not ssh_key:
+                scan_progress[scan_id] = {
+                    'status': 'error',
+                    'message': '❌ SSH key file is required for key authentication',
+                    'step': 0,
+                    'total_steps': 8,
+                    'progress_percent': 0,
+                    'current_operation': 'Error'
+                }
+                return {"error": "SSH key file is required for key authentication", "scan_id": scan_id}
+            
+            # Save uploaded SSH key to temporary file
+            with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".pem") as temp_key:
+                content = await ssh_key.read()
+                temp_key.write(content)
+                temp_key_path = temp_key.name
+            
+            try:
+                # Set proper permissions for SSH key
+                os.chmod(temp_key_path, 0o600)
+                
+                # Run scan in background with progress updates
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    run_scan_with_progress,
+                    scan_id, host, port, username,
+                    None, temp_key_path, key_passphrase, project_path, stack_name
+                )
+            finally:
+                # Clean up temporary key file
+                if os.path.exists(temp_key_path):
+                    os.unlink(temp_key_path)
         
-        try:
-            # Set proper permissions for SSH key
-            os.chmod(temp_key_path, 0o600)
-            result = run_full_scan(host, port, username, ssh_key_path=temp_key_path, key_passphrase=key_passphrase, project_path=project_path, stack_name=stack_name)
-        finally:
-            # Clean up temporary key file
-            if os.path.exists(temp_key_path):
-                os.unlink(temp_key_path)
+        else:
+            scan_progress[scan_id] = {
+                'status': 'error',
+                'message': '❌ Invalid authentication method',
+                'step': 0,
+                'total_steps': 8,
+                'progress_percent': 0,
+                'current_operation': 'Error'
+            }
+            return {"error": "Invalid authentication method. Use 'password' or 'key'", "scan_id": scan_id}
+        
+        # Add download link to the response if report was generated
+        if result.get('report_path'):
+            report_filename = os.path.basename(result['report_path'])
+            result['report_download_url'] = f"/download-report/{report_filename}"
+            result['report_filename'] = report_filename
+        
+        result['scan_id'] = scan_id
+        return result
+        
+    except Exception as e:
+        scan_progress[scan_id] = {
+            'status': 'error',
+            'message': f'❌ Unexpected error: {str(e)}',
+            'step': 0,
+            'total_steps': 8,
+            'progress_percent': 0,
+            'current_operation': 'Error'
+        }
+        return {"error": str(e), "scan_id": scan_id}
+
+def run_scan_with_progress(scan_id: str, host, port, username, password=None, ssh_key_path=None, key_passphrase=None, project_path=None, stack_name=None):
+    """Run scan with detailed progress updates"""
+    callback = ProgressCallback(scan_id)
     
-    else:
-        return {"error": "Invalid authentication method. Use 'password' or 'key'"}
-    
-    # Add download link to the response if report was generated
-    if result.get('report_path'):
-        report_filename = os.path.basename(result['report_path'])
-        result['report_download_url'] = f"/download-report/{report_filename}"
-        result['report_filename'] = report_filename
-    
-    return result
+    try:
+        # Step 1: Connection
+        callback.update('running', f'🔌 Connecting to {host}:{port}...', 'connection')
+        
+        # Step 2: Authentication
+        auth_method = "SSH Key" if ssh_key_path else "Password"
+        callback.update('running', f'🔐 Authenticating with {auth_method}...', 'authentication')
+        
+        # Step 3: System Information
+        callback.update('running', '🖥️ Gathering system information...', 'system_info')
+        
+        # Step 4: Port Scanning
+        callback.update('running', '🔍 Scanning for open ports...', 'port_scan')
+        
+        # Step 5: File Analysis
+        callback.update('running', '📄 Analyzing sensitive files...', 'file_analysis')
+        
+        # Step 6: Framework Security
+        callback.update('running', '🔧 Checking Laravel/Node.js/Python security...', 'framework_security')
+        
+        # Step 7: Docker Analysis
+        if stack_name:
+            callback.update('running', f'🐳 Analyzing Docker Swarm stack: {stack_name}...', 'docker_analysis')
+        else:
+            callback.update('running', '🐳 Checking Docker configuration...', 'docker_analysis')
+        
+        # Step 8: Report Generation
+        callback.update('running', '📊 Generating security report...', 'report_generation')
+        
+        # Run the actual scan
+        result = run_full_scan(
+            host, port, username,
+            password=password,
+            ssh_key_path=ssh_key_path,
+            key_passphrase=key_passphrase,
+            project_path=project_path,
+            stack_name=stack_name
+        )
+        
+        if result.get('status') == 'success':
+            callback.update('completed', '✅ Security scan completed successfully!', 'completed')
+        else:
+            callback.update('error', f'❌ Scan failed: {result.get("error", "Unknown error")}', 'error')
+        
+        return result
+        
+    except Exception as e:
+        callback.update('error', f'❌ Scan failed: {str(e)}', 'error')
+        return {'status': 'failed', 'error': str(e)}
 
 @app.get("/download-report/{report_filename}")
 async def download_report(report_filename: str):

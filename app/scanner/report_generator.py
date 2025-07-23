@@ -615,9 +615,19 @@ def generate_pdf_report(scan_data):
             
             nodejs_services = swarm_config.get('nodejs_services', [])
             if nodejs_services:
-                pdf.add_status_badge('info', f"Node.js Services: {', '.join(nodejs_services)}")
+                pdf.add_status_badge('secure', f"Node.js Services Found: {', '.join(nodejs_services)}")
             else:
                 pdf.add_status_badge('warning', "No Node.js services (user_backend*) found")
+            
+            nodejs_containers = swarm_config.get('nodejs_containers', [])
+            if nodejs_containers:
+                pdf.add_text(f"Node.js Containers: {', '.join(nodejs_containers)}")
+                
+                # Show Node.js versions if available
+                for container in nodejs_containers:
+                    version_key = f'nodejs_version_{container}'
+                    if version_key in swarm_config:
+                        pdf.add_text(f"  {container}: {swarm_config[version_key]}")
             
             secrets = swarm_config.get('secrets', [])
             if not secrets:
@@ -642,6 +652,233 @@ def generate_pdf_report(scan_data):
         security_summary = nodejs_security.get('security_summary', {})
         if security_summary:
             pdf.add_subtitle("Node.js Security Summary")
+            
+            critical_issues = security_summary.get('critical_issues', [])
+            if critical_issues:
+                pdf.add_subtitle("Critical Issues")
+                for issue in critical_issues:
+                    pdf.add_status_badge('critical', issue)
+            
+            warnings = security_summary.get('warnings', [])
+            if warnings:
+                pdf.add_subtitle("Warnings")
+                for warning in warnings:
+                    pdf.add_status_badge('warning', warning)
+            
+            recommendations = security_summary.get('recommendations', [])
+            if recommendations:
+                pdf.add_subtitle("Recommendations")
+                for rec in recommendations:
+                    pdf.add_bullet_point(rec)
+    
+    # Python Security Section
+    python_security = scan_data.get('python_security', {})
+    if python_security.get('python_found'):
+        pdf.add_page()
+        pdf.add_title("Python Security Analysis")
+        
+        # Requirements checks
+        requirements_checks = python_security.get('requirements_checks', {})
+        if requirements_checks.get('requirements_exists'):
+            pdf.add_subtitle("Python Requirements Analysis")
+            
+            packages = requirements_checks.get('packages', {})
+            pdf.add_text(f"Total packages: {packages.get('count', 0)}")
+            
+            versions = requirements_checks.get('versions', {})
+            pinned_count = versions.get('pinned', 0)
+            unpinned_count = versions.get('unpinned', 0)
+            
+            if pinned_count > 0:
+                pdf.add_status_badge('secure', f"Pinned versions: {pinned_count}")
+            
+            if unpinned_count > 0:
+                pdf.add_status_badge('warning', f"Unpinned versions: {unpinned_count}")
+            
+            # Security packages check
+            security_packages = requirements_checks.get('security_packages', {})
+            if security_packages.get('django'):
+                pdf.add_status_badge('secure', "Django framework detected")
+            if security_packages.get('flask'):
+                pdf.add_status_badge('secure', "Flask framework detected")
+            if security_packages.get('fastapi'):
+                pdf.add_status_badge('secure', "FastAPI framework detected")
+            
+            vulnerable_packages = requirements_checks.get('vulnerable_packages', [])
+            if vulnerable_packages:
+                pdf.add_subtitle("Packages Requiring Attention")
+                for package in vulnerable_packages:
+                    pdf.add_status_badge('warning', f"Check for updates: {package}")
+        
+        # Environment file checks
+        env_checks = python_security.get('env_file_checks', {})
+        if env_checks.get('env_file_exists'):
+            pdf.add_subtitle("Python Environment Configuration")
+            
+            django_settings = env_checks.get('django_settings', {})
+            if django_settings.get('debug') == 'true':
+                pdf.add_status_badge('critical', "Django DEBUG mode enabled - disable in production")
+            elif django_settings.get('debug') == 'false':
+                pdf.add_status_badge('secure', "Django DEBUG mode properly disabled")
+            
+            if not django_settings.get('secret_key', False):
+                pdf.add_status_badge('critical', "Django/Flask SECRET_KEY is weak or missing")
+            else:
+                pdf.add_status_badge('secure', "Strong SECRET_KEY configured")
+            
+            flask_config = env_checks.get('flask_config', {})
+            if flask_config.get('debug') == 'true':
+                pdf.add_status_badge('critical', "Flask DEBUG mode enabled - disable in production")
+            elif flask_config.get('debug') == 'false':
+                pdf.add_status_badge('secure', "Flask DEBUG mode properly disabled")
+            
+            if env_checks.get('database_config', {}).get('exposed', False):
+                pdf.add_status_badge('warning', "Database credentials may be using weak values")
+            
+            if env_checks.get('api_keys', {}).get('exposed', False):
+                pdf.add_status_badge('warning', "API keys detected - ensure they are secure")
+            
+            if not env_checks.get('ssl_config', {}).get('enabled', False):
+                pdf.add_bullet_point("Recommendation: Enable SSL/TLS configuration")
+        
+        # Security packages analysis
+        security_packages = python_security.get('security_packages', {})
+        if security_packages:
+            pdf.add_subtitle("Security Package Analysis")
+            
+            packages = security_packages.get('security_packages', {})
+            security_count = sum(1 for v in packages.values() if v)
+            
+            if security_count > 0:
+                pdf.add_status_badge('secure', f"Security packages detected: {security_count}")
+            else:
+                pdf.add_status_badge('warning', "No security packages detected")
+            
+            vulnerability_scan = security_packages.get('vulnerability_scan', {})
+            if vulnerability_scan.get('run'):
+                issues = vulnerability_scan.get('issues', 0)
+                if issues == 0:
+                    pdf.add_status_badge('secure', "No pip dependency issues found")
+                else:
+                    pdf.add_status_badge('warning', f"Found {issues} pip dependency issues")
+            
+            outdated_packages = security_packages.get('outdated_packages', {})
+            outdated_count = outdated_packages.get('count', 0)
+            if outdated_count > 0:
+                pdf.add_status_badge('warning', f"{outdated_count} outdated packages found")
+        
+        # Performance checks
+        performance_checks = python_security.get('performance_checks', {})
+        if performance_checks:
+            pdf.add_subtitle("Performance & Configuration")
+            
+            if not performance_checks.get('wsgi_server', {}).get('configured', False):
+                pdf.add_status_badge('warning', "Production WSGI server not configured")
+            else:
+                wsgi_file = performance_checks.get('wsgi_server', {}).get('file', '')
+                pdf.add_status_badge('secure', f"WSGI server configured: {wsgi_file}")
+            
+            if not performance_checks.get('caching', {}).get('configured', False):
+                pdf.add_bullet_point("Recommendation: Configure caching (Redis/Memcached)")
+            else:
+                pdf.add_status_badge('secure', "Caching configured")
+            
+            if not performance_checks.get('health_check', {}).get('exists', False):
+                pdf.add_bullet_point("Recommendation: Implement health check endpoints")
+            else:
+                pdf.add_status_badge('secure', "Health check endpoints found")
+        
+        # Permission checks
+        permission_checks = python_security.get('permission_checks', {})
+        if permission_checks:
+            pdf.add_subtitle("File & Directory Permissions")
+            
+            if not permission_checks.get('env_file_permissions', {}).get('secure', False):
+                pdf.add_status_badge('critical', ".env file has insecure permissions")
+            else:
+                pdf.add_status_badge('secure', ".env file permissions are secure")
+            
+            if not permission_checks.get('venv_permissions', {}).get('secure', False):
+                pdf.add_status_badge('warning', "Virtual environment has world-readable permissions")
+            
+            if permission_checks.get('logs_directory', {}).get('exists', False):
+                if not permission_checks.get('logs_directory', {}).get('writable', False):
+                    pdf.add_status_badge('warning', "Logs directory is not writable")
+                else:
+                    pdf.add_status_badge('secure', "Logs directory is properly configured")
+        
+        # Docker configuration for Python
+        docker_config = python_security.get('docker_config', {})
+        if docker_config.get('dockerfile_exists') or docker_config.get('container_running'):
+            pdf.add_subtitle("Python Docker Configuration")
+            
+            if docker_config.get('dockerfile_exists'):
+                pdf.add_status_badge('secure', "Dockerfile found")
+                
+                if not docker_config.get('user_config', {}).get('non_root', False):
+                    pdf.add_status_badge('critical', "Docker container running as root user")
+                else:
+                    pdf.add_status_badge('secure', "Docker container running as non-root user")
+                
+                if not docker_config.get('health_check', {}).get('configured', False):
+                    pdf.add_bullet_point("Docker health check not configured")
+                else:
+                    pdf.add_status_badge('secure', "Docker health check configured")
+                
+                security_issues = docker_config.get('security_issues', [])
+                if security_issues:
+                    pdf.add_subtitle("Docker Security Issues")
+                    for issue in security_issues:
+                        pdf.add_status_badge('critical', issue)
+        
+        # Swarm configuration for Python
+        swarm_config = python_security.get('swarm_config', {})
+        if swarm_config and swarm_config.get('stack_deployed'):
+            pdf.add_subtitle("Python Docker Swarm Configuration")
+            
+            services = swarm_config.get('services', [])
+            if services:
+                pdf.add_text(f"Total Services: {len(services)}")
+            
+            python_services = swarm_config.get('python_services', [])
+            if python_services:
+                pdf.add_status_badge('secure', f"Python Services Found: {', '.join(python_services)}")
+            else:
+                pdf.add_status_badge('warning', "No Python services (commission*) found")
+            
+            python_containers = swarm_config.get('python_containers', [])
+            if python_containers:
+                pdf.add_text(f"Python Containers: {', '.join(python_containers)}")
+                
+                # Show Python versions if available
+                for container in python_containers:
+                    version_key = f'python_version_{container}'
+                    if version_key in swarm_config:
+                        pdf.add_text(f"  {container}: {swarm_config[version_key]}")
+            
+            secrets = swarm_config.get('secrets', [])
+            if not secrets:
+                pdf.add_status_badge('warning', "No Docker secrets configured")
+            else:
+                pdf.add_status_badge('secure', f"Docker secrets configured: {', '.join(secrets)}")
+            
+            networks = swarm_config.get('networks', [])
+            if not networks:
+                pdf.add_bullet_point("Recommendation: Use custom networks for isolation")
+            else:
+                pdf.add_status_badge('secure', f"Custom networks configured: {', '.join(networks)}")
+            
+            # Show security issues from Swarm
+            swarm_security_issues = swarm_config.get('security_issues', [])
+            if swarm_security_issues:
+                pdf.add_subtitle("Swarm Security Issues")
+                for issue in swarm_security_issues:
+                    pdf.add_status_badge('warning', issue)
+        
+        # Python Security summary
+        security_summary = python_security.get('security_summary', {})
+        if security_summary:
+            pdf.add_subtitle("Python Security Summary")
             
             critical_issues = security_summary.get('critical_issues', [])
             if critical_issues:
@@ -693,6 +930,10 @@ def generate_pdf_report(scan_data):
     
     if nodejs_security.get('security_summary', {}).get('recommendations'):
         all_recommendations.extend([f"Node.js: {rec}" for rec in nodejs_security['security_summary']['recommendations']])
+    
+    python_security = scan_data.get('python_security', {})
+    if python_security.get('security_summary', {}).get('recommendations'):
+        all_recommendations.extend([f"Python: {rec}" for rec in python_security['security_summary']['recommendations']])
     
     # General recommendations
     general_recommendations = [
