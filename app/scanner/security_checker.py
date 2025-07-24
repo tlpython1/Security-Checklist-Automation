@@ -90,11 +90,19 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
             # 1. Port scanning
             update_progress('🔍 Starting port scan...', 'port_scan')
             logger.info("Starting port scan...")
+            if stack_name:
+                logger.info(f"Including Docker stack ports from stack: {stack_name}")
             comprehensive_scan = True
-            open_ports = get_listening_ports_fast(host)
             
-            # Get accessibility summary
-            summary = get_port_accessibility_summary(host, 'fast')
+            # Pass connection and stack_name to enable Docker stack port discovery
+            open_ports = get_listening_ports_fast(host, conn, stack_name)
+            
+            # Log Docker stack port information if available
+            if open_ports.get('docker_stack_ports'):
+                logger.info(f"Found {len(open_ports['docker_stack_ports'])} Docker stack ports: {open_ports['docker_stack_ports']}")
+            
+            # Get accessibility summary with Docker stack ports
+            summary = get_port_accessibility_summary(host, 'fast', conn, stack_name)
             logger.info(f"Globally accessible ports: {summary.get('globally_accessible_ports', [])}")
             logger.info(f"Restricted ports: {summary.get('restricted_ports', [])}")
 
@@ -303,7 +311,7 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
         }
 
 
-def run_quick_scan(host, port, username, password=None, ssh_key_path=None, key_passphrase=None):
+def run_quick_scan(host, port, username, password=None, ssh_key_path=None, key_passphrase=None, stack_name=None):
     """
     Quick scan focusing only on port scanning and basic system info
     """
@@ -330,9 +338,9 @@ def run_quick_scan(host, port, username, password=None, ssh_key_path=None, key_p
             conn.run("echo 'Connection successful'", hide=True)
             logger.info(f"Connected to {host} successfully for quick scan.")
 
-            # Quick port scan
+            # Quick port scan with Docker stack support
             logger.info("Running quick port scan...")
-            open_ports = get_listening_ports_fast(host)
+            open_ports = get_listening_ports_fast(host, conn, stack_name)
             
             # Basic system info
             os_info = conn.run("uname -a", hide=True).stdout.strip()
@@ -343,7 +351,8 @@ def run_quick_scan(host, port, username, password=None, ssh_key_path=None, key_p
                 'scan_type': 'quick',
                 'open_ports': open_ports,
                 'os_info': os_info,
-                'connection_method': 'SSH Key' if ssh_key_path else 'Password'
+                'connection_method': 'SSH Key' if ssh_key_path else 'Password',
+                'stack_name': stack_name
             }
             
     except Exception as e:

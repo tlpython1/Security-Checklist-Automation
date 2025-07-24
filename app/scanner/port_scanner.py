@@ -4,11 +4,58 @@ import time
 import subprocess
 import re
 
-def get_common_ports():
+def get_docker_stack_ports(conn, stack_name):
     """
-    Return list of most critical ports for fast scanning (24 essential ports)
+    Get exposed ports from Docker stack services
     """
-    return [
+    stack_ports = []
+    try:
+        if not stack_name:
+            return []
+            
+        # Get stack services
+        result = conn.run(f"docker stack services {stack_name} --format '{{{{.Name}}}} {{{{.Ports}}}}'", hide=True, warn=True)
+        
+        # Check if command executed successfully and has output
+        if result.ok and result.stdout.strip():
+            for line in result.stdout.strip().split('\n'):
+                if line and ':' in line:
+                    # Parse service line format: "STACKNAME_service *:port->port/tcp"
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        ports_part = parts[1]  # Get the ports part
+                        
+                        # Extract external ports from formats like "*:8080->8080/tcp" or "8080:8080/tcp"
+                        port_mappings = ports_part.split(',')
+                        for mapping in port_mappings:
+                            mapping = mapping.strip()
+                            if '->' in mapping:
+                                # Format: "*:8080->8080/tcp" or "8080:8080/tcp"
+                                external_part = mapping.split('->')[0]
+                                if ':' in external_part:
+                                    external_port = external_part.split(':')[-1]
+                                    try:
+                                        port_num = int(external_port)
+                                        if port_num not in stack_ports:
+                                            stack_ports.append(port_num)
+                                    except ValueError:
+                                        continue
+        elif not result.ok:
+            print(f"Docker stack command failed for '{stack_name}': {result.stderr}")
+            
+        print(f"Found {len(stack_ports)} exposed ports in Docker stack '{stack_name}': {sorted(stack_ports)}")
+        
+    except Exception as e:
+        print(f"Error getting Docker stack ports: {e}")
+        
+    return stack_ports
+
+def get_common_ports(stack_ports=None):
+    """
+    Return list of most critical ports for fast scanning (24+ essential ports)
+    Optionally combine with Docker stack ports
+    """
+    common_ports = [
         # Essential Web Services (9 ports)
         80,    # HTTP
         443,   # HTTPS
@@ -49,12 +96,22 @@ def get_common_ports():
         9000,  # Various web services
         8443,  # HTTPS Alternative
     ]
+    
+    # Add Docker stack ports if provided
+    if stack_ports:
+        for port in stack_ports:
+            if port not in common_ports:
+                common_ports.append(port)
+        print(f"Enhanced port list with {len(stack_ports)} Docker stack ports")
+    
+    return common_ports
 
-def get_all_ports():
+def get_all_ports(stack_ports=None):
     """
     Return extended list of ports for comprehensive scanning
+    Optionally combine with Docker stack ports
     """
-    return [
+    all_ports = [
         # Web Services
         80, 443, 8080, 8070, 8443, 8000, 3000, 4000, 5000, 9000, 8009, 8001, 7000,
         
@@ -82,6 +139,15 @@ def get_all_ports():
         # Other Common Services
         111, 113, 119, 1723, 1194, 4444, 8888, 9090, 10000,
     ]
+    
+    # Add Docker stack ports if provided
+    if stack_ports:
+        for port in stack_ports:
+            if port not in all_ports:
+                all_ports.append(port)
+        print(f"Enhanced comprehensive port list with {len(stack_ports)} Docker stack ports")
+    
+    return all_ports
 
 def check_ufw_status():
     """
@@ -188,11 +254,21 @@ def check_port_accessibility(host, port):
     
     return accessibility
 
-def get_listening_ports_fast(host):
+def get_listening_ports_fast(host, conn=None, stack_name=None):
     """
     Fast scan using nmap - essential ports only with optimized scanning
+    If conn and stack_name are provided, includes Docker stack ports
     """
-    common_ports = get_common_ports()
+    # Get Docker stack ports if connection and stack name are provided
+    stack_ports = []
+    if conn and stack_name:
+        try:
+            stack_ports = get_docker_stack_ports(conn, stack_name)
+        except Exception as e:
+            print(f"Warning: Could not get Docker stack ports: {e}")
+    
+    # Get common ports enhanced with stack ports
+    common_ports = get_common_ports(stack_ports)
     port_list = ','.join(map(str, common_ports))
     
     print(f"Fast scanning {host} ({len(common_ports)} essential ports)...")
@@ -251,10 +327,16 @@ def get_listening_ports_fast(host):
         end_time = time.time()
         scan_duration = round(end_time - start_time, 2)
         
+        # Build scan type description
+        scan_type_desc = f'Fast ({len(common_ports)} Essential Ports'
+        if stack_ports:
+            scan_type_desc += f' + {len(stack_ports)} Docker Stack Ports'
+        scan_type_desc += ')'
+        
         result = {
             'host': host,
             'host_ip': host_ip,
-            'scan_type': f'Fast ({len(common_ports)} Essential Ports)',
+            'scan_type': scan_type_desc,
             'total_ports_scanned': len(common_ports),
             'open_ports': sorted(open_ports),
             'total_open_ports': len(open_ports),
@@ -262,6 +344,8 @@ def get_listening_ports_fast(host):
             'firewall_info': firewall_info,
             'scan_duration_seconds': scan_duration,
             'scanned_ports': common_ports,
+            'docker_stack_ports': stack_ports if stack_ports else [],
+            'stack_name': stack_name if stack_name else None,
             'note': 'Fast scan mode - use comprehensive scan for detailed analysis'
         }
         
@@ -273,11 +357,21 @@ def get_listening_ports_fast(host):
     except Exception as e:
         return {"error": f"Nmap scan failed: {str(e)}"}
 
-def get_listening_ports_comprehensive(host):
+def get_listening_ports_comprehensive(host, conn=None, stack_name=None):
     """
     Comprehensive scan with full service detection and accessibility analysis
+    If conn and stack_name are provided, includes Docker stack ports
     """
-    all_ports = get_all_ports()
+    # Get Docker stack ports if connection and stack name are provided
+    stack_ports = []
+    if conn and stack_name:
+        try:
+            stack_ports = get_docker_stack_ports(conn, stack_name)
+        except Exception as e:
+            print(f"Warning: Could not get Docker stack ports: {e}")
+    
+    # Get all ports enhanced with stack ports
+    all_ports = get_all_ports(stack_ports)
     port_list = ','.join(map(str, all_ports))
     
     print(f"Comprehensive scanning {host} ({len(all_ports)} ports)...")
@@ -334,17 +428,100 @@ def get_listening_ports_comprehensive(host):
         end_time = time.time()
         scan_duration = round(end_time - start_time, 2)
         
+        # Build scan type description
+        scan_type_desc = f'Comprehensive ({len(all_ports)} Ports'
+        if stack_ports:
+            scan_type_desc += f' + {len(stack_ports)} Docker Stack Ports'
+        scan_type_desc += ')'
+        
         result = {
             'host': host,
             'host_ip': host_ip,
-            'scan_type': f'Comprehensive ({len(all_ports)} Ports)',
+            'scan_type': scan_type_desc,
             'total_ports_scanned': len(all_ports),
             'open_ports': sorted(open_ports),
             'total_open_ports': len(open_ports),
             'port_details': port_details,
             'firewall_info': firewall_info,
             'scan_duration_seconds': scan_duration,
-            'scanned_ports': all_ports
+            'scanned_ports': all_ports,
+            'docker_stack_ports': stack_ports if stack_ports else [],
+            'stack_name': stack_name if stack_name else None
+        }
+        
+        print(f"Comprehensive scan completed in {scan_duration} seconds")
+        print(f"Found {len(open_ports)} open ports: {sorted(open_ports)}")
+        
+        return result
+        
+    except Exception as e:
+        return {"error": f"Nmap scan failed: {str(e)}"}
+    except socket.gaierror:
+        return {"error": f"Unable to resolve host: {host}"}
+    
+    try:
+        # Initialize nmap scanner
+        nm = nmap.PortScanner()
+        
+        # Comprehensive scan with service version detection
+        scan_result = nm.scan(host_ip, arguments=f'-p {port_list} -T4 -sV')
+        
+        # Extract open ports
+        open_ports = []
+        port_details = {}
+        
+        if host_ip in nm.all_hosts():
+            for protocol in nm[host_ip].all_protocols():
+                ports = nm[host_ip][protocol].keys()
+                for port in ports:
+                    port_info = nm[host_ip][protocol][port]
+                    if port_info['state'] == 'open':
+                        open_ports.append(port)
+                        
+                        # Check port accessibility for comprehensive scan
+                        print(f"Checking accessibility for port {port}...")
+                        accessibility = check_port_accessibility(host, port)
+                        
+                        port_details[port] = {
+                            'protocol': protocol,
+                            'state': port_info['state'],
+                            'service': port_info.get('name', 'unknown'),
+                            'version': port_info.get('version', ''),
+                            'product': port_info.get('product', ''),
+                            'service_description': get_port_description(port),
+                            'accessibility': accessibility
+                        }
+        
+        # Check overall firewall status
+        ufw_status = check_ufw_status()
+        firewall_info = {
+            'ufw_active': "Status: active" in ufw_status if ufw_status else False,
+            'firewall_detected': ufw_status is not None,
+            'ufw_output': ufw_status if ufw_status else "UFW not available"
+        }
+        
+        end_time = time.time()
+        scan_duration = round(end_time - start_time, 2)
+        
+        # Build scan type description
+        scan_type_desc = f'Comprehensive ({len(all_ports)} Ports'
+        if stack_ports:
+            scan_type_desc += f' + {len(stack_ports)} Docker Stack Ports'
+        scan_type_desc += ')'
+        
+        result = {
+            'host': host,
+            'host_ip': host_ip,
+            'scan_type': scan_type_desc,
+            'total_ports_scanned': len(all_ports),
+            'open_ports': sorted(open_ports),
+            'total_open_ports': len(open_ports),
+            'port_details': port_details,
+            'firewall_info': firewall_info,
+            'scan_duration_seconds': scan_duration,
+            'scanned_ports': all_ports,
+            'docker_stack_ports': stack_ports if stack_ports else [],
+            'stack_name': stack_name if stack_name else None
         }
         
         print(f"Comprehensive scan completed in {scan_duration} seconds")
@@ -355,16 +532,22 @@ def get_listening_ports_comprehensive(host):
     except Exception as e:
         return {"error": f"Nmap scan failed: {str(e)}"}
 
-def scan_host(host, scan_type='fast'):
+def scan_host(host, scan_type='fast', conn=None, stack_name=None):
     """
     Scan the host based on the specified scan type.
-    - fast: Quick scan of essential ports only (22-25 ports)
+    - fast: Quick scan of essential ports only (22-25+ ports including Docker stack ports)
     - comprehensive: Detailed scan with service detection and accessibility analysis
+    
+    Parameters:
+    - host: Target host to scan
+    - scan_type: 'fast' or 'comprehensive'
+    - conn: SSH connection object (for Docker stack port discovery)
+    - stack_name: Docker stack name to get exposed ports from
     """
     if scan_type == 'fast':
-        return get_listening_ports_fast(host)
+        return get_listening_ports_fast(host, conn, stack_name)
     elif scan_type == 'comprehensive':
-        return get_listening_ports_comprehensive(host)
+        return get_listening_ports_comprehensive(host, conn, stack_name)
     else:
         return {"error": f"Unsupported scan type: {scan_type}. Use 'fast' or 'comprehensive'."}
 
@@ -448,6 +631,15 @@ def print_scan_results_with_accessibility(scan_result):
     print(f"UFW Active: {scan_result['firewall_info']['ufw_active']}")
     print(f"Scan Duration: {scan_result['scan_duration_seconds']} seconds")
     
+    # Show Docker stack information if available
+    if scan_result.get('stack_name'):
+        print(f"Docker Stack: {scan_result['stack_name']}")
+        docker_ports = scan_result.get('docker_stack_ports', [])
+        if docker_ports:
+            print(f"Docker Stack Ports: {sorted(docker_ports)}")
+        else:
+            print("Docker Stack Ports: None found")
+    
     if scan_result['open_ports']:
         print(f"\nOPEN PORTS WITH ACCESSIBILITY DETAILS:")
         print("-" * 80)
@@ -458,12 +650,17 @@ def print_scan_results_with_accessibility(scan_result):
             
             # Service info
             service_info = f"{details['service']}"
-            if details['version']:
+            if details.get('version'):
                 service_info += f" {details['version']}"
-            if details['product']:
+            if details.get('product'):
                 service_info += f" ({details['product']})"
             
-            print(f"\nPort {port:5d}/{details['protocol']:3s} - {service_info}")
+            # Mark Docker stack ports
+            port_source = ""
+            if port in scan_result.get('docker_stack_ports', []):
+                port_source = " [Docker Stack Port]"
+            
+            print(f"\nPort {port:5d}/{details['protocol']:3s} - {service_info}{port_source}")
             print(f"  Description: {details['service_description']}")
             
             # Accessibility info
@@ -488,11 +685,11 @@ def print_scan_results_with_accessibility(scan_result):
         print("\nNo open ports found.")
 
 # Enhanced utility function
-def get_port_accessibility_summary(host, scan_type='fast'):
+def get_port_accessibility_summary(host, scan_type='fast', conn=None, stack_name=None):
     """
     Get summary of port accessibility
     """
-    result = scan_host(host, scan_type)
+    result = scan_host(host, scan_type, conn, stack_name)
     
     if 'error' in result:
         return result
