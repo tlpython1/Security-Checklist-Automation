@@ -1,603 +1,833 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Security Checklist Automation - Server Scanner</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Scanner</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
         
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        /* Authentication Method Toggle */
+        .auth-toggle {
+            display: flex;
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
             overflow: hidden;
         }
         
-        .header {
-            background: linear-gradient(45deg, #2c3e50 0%, #34495e 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }
-        
-        .header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            font-weight: 300;
-        }
-        
-        .header p {
-            font-size: 1.1em;
-            opacity: 0.9;
-        }
-        
-        .form-container {
-            padding: 40px;
-        }
-        
-        .form-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 30px;
-            margin-bottom: 30px;
-        }
-        
-        .form-group {
-            margin-bottom: 25px;
-        }
-        
-        .form-group.full-width {
-            grid-column: 1 / -1;
-        }
-        
-        label {
-            display: block;
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: #2c3e50;
-            font-size: 14px;
-        }
-        
-        input[type="text"],
-        input[type="number"],
-        input[type="password"],
-        select {
-            width: 100%;
-            padding: 12px 15px;
-            border: 2px solid #e0e6ed;
-            border-radius: 8px;
-            font-size: 16px;
-            transition: all 0.3s ease;
-            background: white;
-        }
-        
-        input[type="text"]:focus,
-        input[type="number"]:focus,
-        input[type="password"]:focus,
-        select:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-        
-        input[type="file"] {
-            width: 100%;
-            padding: 10px;
-            border: 2px dashed #e0e6ed;
-            border-radius: 8px;
+        .auth-toggle button {
+            flex: 1;
             background: #f8f9fa;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        input[type="file"]:hover {
-            border-color: #667eea;
-            background: #f0f2ff;
-        }
-        
-        .optional-tag {
-            color: #6c757d;
-            font-size: 12px;
-            font-weight: normal;
-            margin-left: 8px;
-        }
-        
-        .scan-button {
-            background: linear-gradient(45deg, #28a745 0%, #20c997 100%);
-            color: white;
-            padding: 15px 40px;
+            color: #495057;
             border: none;
-            border-radius: 50px;
-            font-size: 18px;
-            font-weight: 600;
+            padding: 10px;
             cursor: pointer;
-            transition: all 0.3s ease;
-            width: 100%;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            transition: all 0.3s;
         }
         
-        .scan-button:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(40, 167, 69, 0.3);
+        .auth-toggle button.active {
+            background: #007bff;
+            color: white;
         }
         
-        .scan-button:disabled {
-            background: #6c757d;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .progress-container {
-            margin-top: 20px;
+        .auth-section {
             display: none;
+        }
+        
+        .auth-section.active {
+            display: block;
+        }
+        
+        .file-upload {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+        }
+        
+        .file-upload input[type=file] {
+            position: absolute;
+            left: -9999px;
+        }
+        
+        .file-upload-label {
+            display: block;
+            padding: 8px 12px;
+            border: 2px dashed #ddd;
+            border-radius: 4px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .file-upload-label:hover {
+            border-color: #007bff;
+            background: #f8f9fa;
+        }
+        
+        .file-upload-label.has-file {
+            border-color: #28a745;
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        #progress { 
+            display: none; 
+            margin-top: 20px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            padding: 15px; 
+            background: #f9f9f9; 
+        }
+        
+        /* Progress Bar Styles */
+        .progress-bar-container {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            margin: 15px 0;
+            overflow: hidden;
         }
         
         .progress-bar {
-            width: 100%;
-            height: 20px;
-            background: #e0e6ed;
-            border-radius: 10px;
-            overflow: hidden;
-            margin: 10px 0;
-        }
-        
-        .progress-fill {
             height: 100%;
-            background: linear-gradient(45deg, #28a745 0%, #20c997 100%);
-            width: 0%;
-            transition: width 0.3s ease;
+            background: linear-gradient(90deg, #007bff, #0056b3);
             border-radius: 10px;
+            transition: width 0.3s ease;
+            width: 0%;
+            position: relative;
         }
         
-        .progress-text {
-            text-align: center;
-            margin: 10px 0;
-            font-weight: 600;
-            color: #2c3e50;
+        .progress-percentage {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
         }
         
-        .progress-step {
-            font-size: 14px;
-            color: #6c757d;
-            text-align: center;
-            margin: 5px 0;
+        /* Step Indicators */
+        .steps-container {
+            display: flex;
+            justify-content: space-between;
+            margin: 20px 0;
+            padding: 0 10px;
         }
         
-        .progress-status {
+        .step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+            position: relative;
+        }
+        
+        .step:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            top: 15px;
+            right: -50%;
+            width: 100%;
+            height: 2px;
+            background: #dee2e6;
+            z-index: 0;
+        }
+        
+        .step.completed:not(:last-child)::after {
+            background: #28a745;
+        }
+        
+        .step.active:not(:last-child)::after {
+            background: linear-gradient(90deg, #28a745 50%, #dee2e6 50%);
+        }
+        
+        .step-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 15px 0;
-            font-size: 16px;
+            background: #dee2e6;
+            color: #6c757d;
+            font-size: 14px;
+            font-weight: bold;
+            z-index: 1;
+            position: relative;
         }
         
-        .progress-status.running {
-            color: #007bff;
+        .step.completed .step-icon {
+            background: #28a745;
+            color: white;
         }
         
-        .progress-status.completed {
+        .step.active .step-icon {
+            background: #007bff;
+            color: white;
+            animation: pulse 1.5s infinite;
+        }
+        
+        .step.error .step-icon {
+            background: #dc3545;
+            color: white;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        .step-label {
+            margin-top: 8px;
+            font-size: 12px;
+            text-align: center;
+            color: #6c757d;
+        }
+        
+        .step.completed .step-label {
             color: #28a745;
+            font-weight: bold;
         }
         
-        .progress-status.error {
+        .step.active .step-label {
+            color: #007bff;
+            font-weight: bold;
+        }
+        
+        .step.error .step-label {
             color: #dc3545;
+            font-weight: bold;
         }
         
-        .loading-spinner {
-            display: none;
-            width: 20px;
-            height: 20px;
-            border: 2px solid #ffffff;
-            border-top: 2px solid transparent;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-right: 10px;
+        .progress-entry {
+            margin: 5px 0;
+            padding: 8px;
+            background: white;
+            border-left: 3px solid #007bff;
+            font-family: monospace;
+            font-size: 13px;
+            border-radius: 3px;
         }
         
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        .progress-entry.error {
+            border-left-color: #dc3545;
+            background: #f8d7da;
         }
         
-        .scan-result {
-            margin-top: 30px;
-            padding: 25px;
-            border-radius: 10px;
-            display: none;
+        .progress-entry.complete {
+            border-left-color: #28a745;
+            background: #d4edda;
         }
         
-        .scan-result.success {
-            background: linear-gradient(45deg, #d4edda 0%, #c3e6cb 100%);
+        .timestamp { color: #666; margin-right: 10px; }
+        .stage { color: #007bff; font-weight: bold; margin-right: 10px; }
+        .message { color: #333; }
+        
+        #progressText {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background: white;
+            border-radius: 3px;
+        }
+        
+        .download-section {
+            margin-top: 15px;
+            padding: 15px;
+            background: #d4edda;
             border: 1px solid #c3e6cb;
-        }
-        
-        .scan-result.error {
-            background: linear-gradient(45deg, #f8d7da 0%, #f5c6cb 100%);
-            border: 1px solid #f5c6cb;
-        }
-        
-        .scan-result h3 {
-            color: #2c3e50;
-            margin-bottom: 15px;
-        }
-        
-        .scan-result.error h3 {
-            color: #721c24;
-        }
-        
-        .result-item {
-            margin: 10px 0;
-            padding: 8px 0;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-        }
-        
-        .result-item:last-child {
-            border-bottom: none;
+            border-radius: 4px;
         }
         
         .download-link {
-            display: inline-block;
-            background: #007bff;
+            background: #28a745;
             color: white;
-            padding: 8px 16px;
+            padding: 10px 20px;
             text-decoration: none;
-            border-radius: 5px;
+            border-radius: 4px;
+            display: inline-block;
             margin-top: 10px;
-            transition: background 0.3s ease;
         }
         
-        .download-link:hover {
-            background: #0056b3;
-        }
-        
-        .reports-section {
-            background: #f8f9fa;
-            padding: 30px;
-            border-top: 1px solid #e0e6ed;
-        }
-        
-        .reports-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-        
-        .refresh-btn {
-            background: #6c757d;
-            color: white;
-            padding: 8px 16px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background 0.3s ease;
-        }
-        
-        .refresh-btn:hover {
-            background: #5a6268;
-        }
-        
-        .report-item {
-            background: white;
-            padding: 15px;
-            margin: 10px 0;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .report-name {
-            font-weight: 600;
-            color: #2c3e50;
-        }
-        
-        .report-meta {
-            color: #6c757d;
-            font-size: 12px;
-        }
-        
-        .auth-toggle {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .auth-option {
-            padding: 12px;
-            text-align: center;
-            border: 2px solid #e0e6ed;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            background: white;
-        }
-        
-        .auth-option.active {
-            border-color: #667eea;
-            background: #f0f2ff;
-            color: #667eea;
-            font-weight: 600;
-        }
-        
-        .field-help {
-            font-size: 12px;
-            color: #6c757d;
-            margin-top: 5px;
-            font-style: italic;
-        }
+        .download-link:hover { background: #218838; }
         
         .status-indicator {
             display: inline-block;
             width: 10px;
             height: 10px;
             border-radius: 50%;
-            margin-right: 8px;
+            margin-right: 5px;
         }
         
-        .status-success { background: #28a745; }
-        .status-warning { background: #ffc107; }
+        .status-running { background: #ffc107; }
+        .status-complete { background: #28a745; }
         .status-error { background: #dc3545; }
+        .status-connected { background: #17a2b8; }
         
-        @media (max-width: 768px) {
-            .form-grid {
-                grid-template-columns: 1fr;
-                gap: 20px;
-            }
-            
-            .container {
-                margin: 10px;
-            }
-            
-            .form-container {
-                padding: 20px;
-            }
-            
-            .header {
-                padding: 20px;
-            }
-            
-            .header h1 {
-                font-size: 2em;
-            }
+        .scan-summary {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+            padding: 5px 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .summary-item:last-child {
+            border-bottom: none;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>🔐 Security Scanner</h1>
-            <p>Comprehensive security analysis for Laravel, Node.js, and Python applications</p>
-        </div>
+        <h1>🔒 Security Scanner</h1>
         
-        <div class="form-container">
-            <form id="scan-form" action="/scan" method="post" enctype="multipart/form-data">
-                <div class="form-grid">
-                    <!-- Server Connection Details -->
-                    <div class="form-group">
-                        <label for="host">🌐 Server Host/IP</label>
-                        <input type="text" id="host" name="host" required placeholder="192.168.1.100 or example.com">
-                        <div class="field-help">Enter the IP address or hostname of the target server</div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="port">🔌 SSH Port</label>
-                        <input type="number" id="port" name="port" value="22" required min="1" max="65535">
-                        <div class="field-help">SSH port (usually 22)</div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="username">👤 Username</label>
-                        <input type="text" id="username" name="username" required placeholder="root or ubuntu">
-                        <div class="field-help">SSH username for server access</div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="project_path">📁 Project Path</label>
-                        <input type="text" id="project_path" name="project_path" value="/www/wwwroot/team1/damon/" placeholder="/var/www/html">
-                        <div class="field-help">Path to your application directory on the server</div>
-                    </div>
-                </div>
-                
-                <!-- Authentication Method -->
-                <div class="form-group full-width">
-                    <label>🔑 Authentication Method</label>
-                    <div class="auth-toggle">
-                        <div class="auth-option active" onclick="selectAuthMethod('password')">
-                            <strong>Password</strong><br>
-                            <small>Use SSH password</small>
-                        </div>
-                        <div class="auth-option" onclick="selectAuthMethod('key')">
-                            <strong>SSH Key</strong><br>
-                            <small>Use private key file</small>
-                        </div>
-                    </div>
-                    <input type="hidden" id="auth_method" name="auth_method" value="password">
-                </div>
-                
-                <!-- Password Authentication -->
-                <div class="form-group full-width" id="password_field">
-                    <label for="password">🔐 Password</label>
-                    <input type="password" id="password" name="password" placeholder="Enter SSH password">
-                    <div class="field-help">SSH password for authentication</div>
-                </div>
-                
-                <!-- SSH Key Authentication -->
-                <div class="form-group full-width" id="ssh_key_field" style="display: none;">
-                    <label for="ssh_key">🗝️ SSH Private Key File</label>
-                    <input type="file" id="ssh_key" name="ssh_key" accept=".pem,.key,.ppk,.id_rsa">
-                    <div class="field-help">Upload your private key file (.pem, .key, .ppk, etc.)</div>
-                </div>
-                
-                <div class="form-group full-width" id="key_passphrase_field" style="display: none;">
-                    <label for="key_passphrase">🔓 Key Passphrase <span class="optional-tag">(optional)</span></label>
-                    <input type="password" id="key_passphrase" name="key_passphrase" placeholder="Enter passphrase if your key is encrypted">
-                    <div class="field-help">Only required if your private key is encrypted</div>
-                </div>
-                
-                <!-- Advanced Options -->
-                <div class="form-group full-width">
-                    <label for="stack_name">🐳 Docker Stack Name <span class="optional-tag">(optional)</span></label>
-                    <input type="text" id="stack_name" name="stack_name" placeholder="DAMON or myapp-stack">
-                    <div class="field-help">For Docker Swarm deployments - helps detect containerized services</div>
-                </div>
-                
-                <!-- Scan Button -->
-                <div class="form-group full-width">
-                    <button type="submit" class="scan-button" id="scan-btn">
-                        <span class="loading-spinner" id="loading-spinner"></span>
-                        <span id="button-text">🚀 Start Security Scan</span>
+        <form id="scanForm" onsubmit="startScan(event)">
+            <div class="form-group">
+                <label for="host">Host/IP Address:</label>
+                <input type="text" id="host" name="host" required placeholder="192.168.1.100">
+            </div>
+            
+            <div class="form-group">
+                <label for="port">SSH Port:</label>
+                <input type="number" id="port" name="port" value="22" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="username">Username:</label>
+                <input type="text" id="username" name="username" required placeholder="admin">
+            </div>
+            
+            <!-- Authentication Method Toggle -->
+            <div class="form-group">
+                <label>Authentication Method:</label>
+                <div class="auth-toggle">
+                    <button type="button" id="passwordAuthBtn" class="active" onclick="switchAuth('password')">
+                        🔑 Password
+                    </button>
+                    <button type="button" id="keyAuthBtn" onclick="switchAuth('key')">
+                        📁 SSH Key
                     </button>
                 </div>
-            </form>
+            </div>
             
-            <!-- Progress Container -->
-            <div id="progress-container" class="progress-container">
-                <div class="progress-text" id="progress-text">Initializing scan...</div>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progress-fill"></div>
-                </div>
-                <div class="progress-step" id="progress-step">Step 0 of 11</div>
-                <div class="progress-status running" id="progress-status">
-                    <span id="progress-message">🚀 Starting security scan...</span>
+            <!-- Password Authentication -->
+            <div id="passwordAuth" class="auth-section active">
+                <div class="form-group">
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" name="password" placeholder="Enter your password">
                 </div>
             </div>
             
-            <!-- Scan Results -->
-            <div id="scan-result" class="scan-result"></div>
-        </div>
+            <!-- SSH Key Authentication -->
+            <div id="keyAuth" class="auth-section">
+                <div class="form-group">
+                    <label for="ssh_key">SSH Private Key:</label>
+                    <div class="file-upload">
+                        <input type="file" id="ssh_key" name="ssh_key" accept=".pem,.ppk,.key,*" onchange="handleKeyUpload(this)">
+                        <label for="ssh_key" class="file-upload-label" id="keyUploadLabel">
+                            📁 Click to upload SSH private key file<br>
+                            <small>Supports .pem, .ppk, .key files</small>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="key_passphrase">Key Passphrase (if required):</label>
+                    <input type="password" id="key_passphrase" name="key_passphrase" placeholder="Leave empty if key has no passphrase">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="project_path">Project Path:</label>
+                <input type="text" id="project_path" name="project_path" value="/var/www/html" placeholder="/var/www/html">
+            </div>
+            
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="comprehensive_scan" name="comprehensive_scan" value="true">
+                    Comprehensive Scan (all 65535 ports - takes longer)
+                </label>
+            </div>
+            
+            <button type="submit" id="scanButton">Start Security Scan</button>
+        </form>
         
-        <!-- Reports Section -->
-        <div class="reports-section">
-            <div class="reports-header">
-                <h3>📊 Generated Reports</h3>
-                <button type="button" class="refresh-btn" onclick="loadReports()">
-                    🔄 Refresh
-                </button>
+        <div id="progress">
+            <h3>
+                <span class="status-indicator" id="statusIndicator"></span>
+                Scan Progress
+            </h3>
+            
+            <!-- Progress Bar -->
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar">
+                    <span class="progress-percentage" id="progressPercentage">0%</span>
+                </div>
             </div>
-            <div id="reports-container">
-                <p style="color: #6c757d; text-align: center; padding: 20px;">
-                    Loading reports...
-                </p>
+            
+            <!-- Step Indicators -->
+            <div class="steps-container">
+                <div class="step" id="step-connection">
+                    <div class="step-icon">1</div>
+                    <div class="step-label">Connection</div>
+                </div>
+                <div class="step" id="step-port_scan">
+                    <div class="step-icon">2</div>
+                    <div class="step-label">Port Scan</div>
+                </div>
+                <div class="step" id="step-files">
+                    <div class="step-icon">3</div>
+                    <div class="step-label">File Check</div>
+                </div>
+                <div class="step" id="step-security">
+                    <div class="step-icon">4</div>
+                    <div class="step-label">Security</div>
+                </div>
+                <div class="step" id="step-docker">
+                    <div class="step-icon">5</div>
+                    <div class="step-label">Docker</div>
+                </div>
+                <div class="step" id="step-report">
+                    <div class="step-icon">6</div>
+                    <div class="step-label">Report</div>
+                </div>
+            </div>
+            
+            <!-- Scan Summary -->
+            <div id="scanSummary" class="scan-summary" style="display: none;">
+                <h4>📊 Scan Summary</h4>
+                <div id="summaryContent"></div>
+            </div>
+            
+            <!-- Progress Log -->
+            <h4>📋 Progress Log</h4>
+            <div id="progressText"></div>
+            
+            <!-- Download Section -->
+            <div id="downloadSection" class="download-section" style="display: none;">
+                <h4>✅ Scan Complete!</h4>
+                <p>Your security report has been generated successfully.</p>
+                <a id="downloadLink" href="#" class="download-link">📄 Download Security Report (PDF)</a>
             </div>
         </div>
     </div>
 
     <script>
-        // Authentication method selection
-        function selectAuthMethod(method) {
-            const authOptions = document.querySelectorAll('.auth-option');
-            const passwordField = document.getElementById('password_field');
-            const sshKeyField = document.getElementById('ssh_key_field');
-            const keyPassphraseField = document.getElementById('key_passphrase_field');
-            const authMethodInput = document.getElementById('auth_method');
-            
-            // Update visual selection
-            authOptions.forEach(option => option.classList.remove('active'));
-            event.target.closest('.auth-option').classList.add('active');
-            
-            // Update form fields
-            authMethodInput.value = method;
+        let eventSource = null;
+        let scanInProgress = false;
+        let currentScanId = null;
+        let currentStep = 0;
+        let totalSteps = 6;
+        let uploadedKeyContent = null;
+        
+        const stepMap = {
+            'connection': 1,
+            'authentication': 1,
+            'port_scan': 2,
+            'files': 3,
+            'security': 4,
+            'laravel': 4,
+            'nodejs': 4,
+            'python': 4,
+            'docker': 5,
+            'report': 6,
+            'complete': 6,
+            'error': -1
+        };
+
+        function switchAuth(method) {
+            const passwordBtn = document.getElementById('passwordAuthBtn');
+            const keyBtn = document.getElementById('keyAuthBtn');
+            const passwordAuth = document.getElementById('passwordAuth');
+            const keyAuth = document.getElementById('keyAuth');
             
             if (method === 'password') {
-                passwordField.style.display = 'block';
-                sshKeyField.style.display = 'none';
-                keyPassphraseField.style.display = 'none';
-                document.getElementById('password').required = true;
-                document.getElementById('ssh_key').required = false;
+                passwordBtn.classList.add('active');
+                keyBtn.classList.remove('active');
+                passwordAuth.classList.add('active');
+                keyAuth.classList.remove('active');
+                
+                // Clear SSH key data
+                document.getElementById('ssh_key').value = '';
+                document.getElementById('key_passphrase').value = '';
+                uploadedKeyContent = null;
+                resetKeyUploadLabel();
             } else {
-                passwordField.style.display = 'none';
-                sshKeyField.style.display = 'block';
-                keyPassphraseField.style.display = 'block';
-                document.getElementById('password').required = false;
-                document.getElementById('ssh_key').required = true;
+                keyBtn.classList.add('active');
+                passwordBtn.classList.remove('active');
+                keyAuth.classList.add('active');
+                passwordAuth.classList.remove('active');
+                
+                // Clear password
+                document.getElementById('password').value = '';
             }
         }
-        
-        // Load available reports
-        async function loadReports() {
-            try {
-                const response = await fetch('/reports');
-                const data = await response.json();
-                const container = document.getElementById('reports-container');
-                
-                if (data.reports && data.reports.length > 0) {
-                    container.innerHTML = '';
-                    data.reports.forEach(report => {
-                        const reportDiv = document.createElement('div');
-                        reportDiv.className = 'report-item';
-                        
-                        const date = new Date(report.created * 1000).toLocaleString();
-                        const sizeKB = Math.round(report.size / 1024);
-                        
-                        reportDiv.innerHTML = `
-                            <div>
-                                <div class="report-name">📄 ${report.filename}</div>
-                                <div class="report-meta">Created: ${date} • Size: ${sizeKB} KB</div>
-                            </div>
-                            <a href="${report.download_url}" target="_blank" class="download-link">
-                                📥 Download
-                            </a>
-                        `;
-                        container.appendChild(reportDiv);
-                    });
+
+        function handleKeyUpload(input) {
+            const file = input.files[0];
+            const label = document.getElementById('keyUploadLabel');
+            
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    uploadedKeyContent = e.target.result;
+                    label.innerHTML = `✅ ${file.name}<br><small>Key loaded successfully</small>`;
+                    label.classList.add('has-file');
+                };
+                reader.readAsText(file);
+            } else {
+                resetKeyUploadLabel();
+            }
+        }
+
+        function resetKeyUploadLabel() {
+            const label = document.getElementById('keyUploadLabel');
+            label.innerHTML = '📁 Click to upload SSH private key file<br><small>Supports .pem, .ppk, .key files</small>';
+            label.classList.remove('has-file');
+            uploadedKeyContent = null;
+        }
+
+        function updateStatusIndicator(status) {
+            const indicator = document.getElementById('statusIndicator');
+            indicator.className = 'status-indicator status-' + status;
+        }
+
+        function updateProgressBar(percentage) {
+            const progressBar = document.getElementById('progressBar');
+            const progressPercentage = document.getElementById('progressPercentage');
+            
+            progressBar.style.width = percentage + '%';
+            progressPercentage.textContent = Math.round(percentage) + '%';
+        }
+
+        function updateStepStatus(stage, status = 'active') {
+            const stepNumber = stepMap[stage];
+            if (!stepNumber || stepNumber === -1) return;
+            
+            // Reset all steps to default state
+            for (let i = 1; i <= totalSteps; i++) {
+                const stepElement = document.querySelector(`[id*="step-"]:nth-child(${i})`);
+                if (stepElement) {
+                    stepElement.className = 'step';
+                }
+            }
+            
+            // Mark completed steps
+            for (let i = 1; i < stepNumber; i++) {
+                const stepElement = document.querySelector(`[id*="step-"]:nth-child(${i})`);
+                if (stepElement) {
+                    stepElement.classList.add('completed');
+                    const icon = stepElement.querySelector('.step-icon');
+                    icon.innerHTML = '✓';
+                }
+            }
+            
+            // Mark current step
+            const currentStepElement = document.querySelector(`[id*="step-"]:nth-child(${stepNumber})`);
+            if (currentStepElement) {
+                if (status === 'error') {
+                    currentStepElement.classList.add('error');
+                    const icon = currentStepElement.querySelector('.step-icon');
+                    icon.innerHTML = '✗';
+                } else if (status === 'complete') {
+                    currentStepElement.classList.add('completed');
+                    const icon = currentStepElement.querySelector('.step-icon');
+                    icon.innerHTML = '✓';
                 } else {
-                    container.innerHTML = `
-                        <div style="text-align: center; padding: 40px; color: #6c757d;">
-                            <div style="font-size: 48px; margin-bottom: 15px;">📋</div>
-                            <p>No reports available yet.</p>
-                            <p><small>Run a security scan to generate your first report.</small></p>
+                    currentStepElement.classList.add('active');
+                }
+            }
+            
+            // Update progress bar
+            let progressPercentage = ((stepNumber - 1) / totalSteps) * 100;
+            if (status === 'complete' && stepNumber === totalSteps) {
+                progressPercentage = 100;
+            }
+            updateProgressBar(progressPercentage);
+            
+            currentStep = stepNumber;
+        }
+
+        function addProgressEntry(message, stage, timestamp, status = 'progress') {
+            const progressText = document.getElementById('progressText');
+            
+            const progressEntry = document.createElement('div');
+            progressEntry.className = `progress-entry ${status}`;
+            
+            progressEntry.innerHTML = `
+                <span class="timestamp">${timestamp}</span>
+                <span class="stage">[${stage.toUpperCase()}]</span>
+                <span class="message">${message}</span>
+            `;
+            
+            progressText.appendChild(progressEntry);
+            progressText.scrollTop = progressText.scrollHeight;
+            
+            // Update step status
+            updateStepStatus(stage, status);
+        }
+
+        function updateScanSummary(data) {
+            const summarySection = document.getElementById('scanSummary');
+            const summaryContent = document.getElementById('summaryContent');
+            
+            if (data.result && data.result.security_summary) {
+                const summary = data.result.security_summary;
+                
+                let summaryHtml = '';
+                
+                if (summary.total_open_ports !== undefined) {
+                    summaryHtml += `
+                        <div class="summary-item">
+                            <span>🔓 Total Open Ports:</span>
+                            <span><strong>${summary.total_open_ports}</strong></span>
                         </div>
                     `;
                 }
-            } catch (error) {
-                document.getElementById('reports-container').innerHTML = `
-                    <div style="text-align: center; padding: 40px; color: #dc3545;">
-                        <div style="font-size: 48px; margin-bottom: 15px;">⚠️</div>
-                        <p>Error loading reports</p>
-                    </div>
-                `;
+                
+                if (summary.high_risk_ports !== undefined) {
+                    summaryHtml += `
+                        <div class="summary-item">
+                            <span>⚠️ High Risk Ports:</span>
+                            <span><strong>${summary.high_risk_ports}</strong></span>
+                        </div>
+                    `;
+                }
+                
+                if (summary.sensitive_files !== undefined) {
+                    summaryHtml += `
+                        <div class="summary-item">
+                            <span>📁 Sensitive Files:</span>
+                            <span><strong>${summary.sensitive_files}</strong></span>
+                        </div>
+                    `;
+                }
+                
+                if (summary.docker_containers !== undefined) {
+                    summaryHtml += `
+                        <div class="summary-item">
+                            <span>🐳 Docker Containers:</span>
+                            <span><strong>${summary.docker_containers}</strong></span>
+                        </div>
+                    `;
+                }
+                
+                if (summary.security_score !== undefined) {
+                    const scoreColor = summary.security_score >= 80 ? '#28a745' : 
+                                     summary.security_score >= 60 ? '#ffc107' : '#dc3545';
+                    summaryHtml += `
+                        <div class="summary-item">
+                            <span>🛡️ Security Score:</span>
+                            <span style="color: ${scoreColor}; font-weight: bold;">${summary.security_score}/100</span>
+                        </div>
+                    `;
+                }
+                
+                summaryContent.innerHTML = summaryHtml;
+                summarySection.style.display = 'block';
             }
         }
-        
-        // Handle form submission with real-time progress
-        document.getElementById('scan-form').addEventListener('submit', async function(e) {
-            e.preventDefault();
+
+        function resetProgress() {
+            // Reset progress bar
+            updateProgressBar(0);
             
-            const formData = new FormData(this);
-            const scanBtn = document.getElementById('scan-btn');
-            const buttonText = document.getElementById('button-text');
-            const loadingSpinner = document.getElementById('loading-spinner');
-            const resultDiv = document.getElementById('scan-result');
-            const progressContainer = document.getElementById('progress-container');
+            // Reset all steps
+            for (let i = 1; i <= totalSteps; i++) {
+                const stepElement = document.querySelector(`[id*="step-"]:nth-child(${i})`);
+                if (stepElement) {
+                    stepElement.className = 'step';
+                    const icon = stepElement.querySelector('.step-icon');
+                    icon.innerHTML = i;
+                }
+            }
             
-            // Show loading state and progress
-            scanBtn.disabled = true;
-            buttonText.textContent = 'Scanning...';
-            loadingSpinner.style.display = 'inline-block';
-            resultDiv.style.display = 'none';
-            progressContainer.style.display = 'block';
+            currentStep = 0;
+        }
+
+        function connectToProgress(scanId) {
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            eventSource = new EventSource(`/scan-progress/${scanId}`);
+            
+            eventSource.onopen = function(event) {
+                console.log('SSE connection opened');
+                updateStatusIndicator('connected');
+            };
+            
+            eventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.status === 'heartbeat') {
+                        return; // Skip heartbeat messages
+                    }
+                    
+                    if (data.status === 'connected') {
+                        addProgressEntry(data.message, data.stage, data.timestamp || new Date().toLocaleTimeString(), 'info');
+                        return;
+                    }
+                    
+                    if (data.status === 'progress') {
+                        addProgressEntry(data.message, data.stage, data.timestamp, 'progress');
+                        updateStatusIndicator('running');
+                        
+                        // Update progress bar with percentage
+                        if (data.percentage !== undefined) {
+                            updateProgressBar(data.percentage);
+                        }
+                        
+                        // Update step status based on stage
+                        if (data.stage && data.stage !== 'progress') {
+                            updateStepStatus(data.stage, 'active');
+                        }
+                    }
+                    
+                    if (data.status === 'complete') {
+                        // Mark all steps as completed
+                        updateStepStatus('complete', 'complete');
+                        updateProgressBar(100);
+                        
+                        addProgressEntry(data.message, data.stage, data.timestamp, 'complete');
+                        updateStatusIndicator('complete');
+                        
+                        // Update summary
+                        updateScanSummary(data);
+                        
+                        // Show download section
+                        if (data.result && data.result.report_download_url) {
+                            const downloadSection = document.getElementById('downloadSection');
+                            const downloadLink = document.getElementById('downloadLink');
+                            
+                            downloadLink.href = data.result.report_download_url;
+                            downloadSection.style.display = 'block';
+                        }
+                        
+                        scanInProgress = false;
+                        document.getElementById('scanButton').disabled = false;
+                        document.getElementById('scanButton').textContent = 'Start Security Scan';
+                        
+                        eventSource.close();
+                    }
+                    
+                    if (data.status === 'error') {
+                        updateStepStatus(data.stage, 'error');
+                        addProgressEntry(data.message, data.stage, data.timestamp, 'error');
+                        updateStatusIndicator('error');
+                        
+                        // Update progress bar to show where error occurred
+                        if (data.percentage !== undefined) {
+                            updateProgressBar(data.percentage);
+                        }
+                        
+                        scanInProgress = false;
+                        document.getElementById('scanButton').disabled = false;
+                        document.getElementById('scanButton').textContent = 'Start Security Scan';
+                        
+                        eventSource.close();
+                    }
+                    
+                } catch (e) {
+                    console.error('Error parsing SSE data:', e);
+                }
+            };
+            
+            eventSource.onerror = function(event) {
+                console.error('SSE connection error:', event);
+                updateStatusIndicator('error');
+                
+                if (scanInProgress) {
+                    addProgressEntry('Connection lost. Retrying...', 'connection', new Date().toLocaleTimeString(), 'error');
+                    
+                    // Retry connection after 3 seconds
+                    setTimeout(() => {
+                        if (scanInProgress && currentScanId) {
+                            connectToProgress(currentScanId);
+                        }
+                    }, 3000);
+                }
+            };
+        }
+
+        async function startScan(event) {
+            event.preventDefault();
+            
+            if (scanInProgress) {
+                alert('Scan already in progress');
+                return;
+            }
+            
+            // Validate authentication method
+            const isPasswordAuth = document.getElementById('passwordAuth').classList.contains('active');
+            const password = document.getElementById('password').value;
+            const keyPassphrase = document.getElementById('key_passphrase').value;
+            
+            if (isPasswordAuth && !password) {
+                alert('Please enter a password');
+                return;
+            }
+            
+            if (!isPasswordAuth && !uploadedKeyContent) {
+                alert('Please upload an SSH key file');
+                return;
+            }
+            
+            scanInProgress = true;
+            currentScanId = null;
+            
+            // Update UI
+            document.getElementById('scanButton').disabled = true;
+            document.getElementById('scanButton').textContent = 'Scanning...';
+            
+            // Clear previous progress
+            document.getElementById('progressText').innerHTML = '';
+            document.getElementById('downloadSection').style.display = 'none';
+            document.getElementById('scanSummary').style.display = 'none';
+            document.getElementById('progress').style.display = 'block';
+            
+            // Reset progress indicators
+            resetProgress();
+            
+            // Prepare form data
+            const formData = new FormData();
+            formData.append('host', document.getElementById('host').value);
+            formData.append('port', document.getElementById('port').value);
+            formData.append('username', document.getElementById('username').value);
+            formData.append('project_path', document.getElementById('project_path').value);
+            formData.append('comprehensive_scan', document.getElementById('comprehensive_scan').checked);
+            
+            if (isPasswordAuth) {
+                formData.append('password', password);
+            } else {
+                // For SSH key, we'll send the key content as a string
+                formData.append('ssh_key_content', uploadedKeyContent);
+                if (keyPassphrase) {
+                    formData.append('key_passphrase', keyPassphrase);
+                }
+            }
             
             try {
-                // Start the scan
-                const response = await fetch('/scan', {
+                const response = await fetch('/start-scan', {
                     method: 'POST',
                     body: formData
                 });
@@ -605,387 +835,32 @@
                 const result = await response.json();
                 
                 if (result.scan_id) {
-                    // Start polling for progress updates
-                    startProgressPolling(result.scan_id, result);
+                    currentScanId = result.scan_id;
+                    addProgressEntry('🚀 Scan started successfully', 'start', new Date().toLocaleTimeString(), 'info');
+                    
+                    // Connect to progress stream
+                    connectToProgress(result.scan_id);
                 } else {
-                    // Handle immediate error
-                    handleScanError(result.error || 'Unknown error occurred');
+                    throw new Error(result.message || 'Failed to start scan');
                 }
                 
             } catch (error) {
-                handleScanError('Failed to start scan: ' + error.message);
-            }
-        });
-        
-        function startProgressPolling(scanId, finalResult) {
-            console.log('DEBUG: Starting progress polling for scan ID:', scanId);
-            const progressInterval = setInterval(async () => {
-                try {
-                    const response = await fetch(`/progress/${scanId}`);
-                    const progress = await response.json();
-                    
-                    console.log('DEBUG: Received progress update:', progress);
-                    updateProgressUI(progress);
-                    
-                    // Stop polling when scan is complete
-                    if (progress.status === 'completed' || progress.status === 'error') {
-                        clearInterval(progressInterval);
-                        handleScanComplete(progress.status === 'completed' ? finalResult : progress);
-                    }
-                } catch (error) {
-                    console.error('Error fetching progress:', error);
-                }
-            }, 500); // Poll every 500ms
-        }
-        
-        function updateProgressUI(progress) {
-            console.log('DEBUG: Updating UI with progress:', progress);
-            
-            const progressFill = document.getElementById('progress-fill');
-            const progressText = document.getElementById('progress-text');
-            const progressStep = document.getElementById('progress-step');
-            const progressStatus = document.getElementById('progress-status');
-            const progressMessage = document.getElementById('progress-message');
-            
-            // Update progress bar
-            const percent = progress.progress_percent || 0;
-            progressFill.style.width = `${percent}%`;
-            
-            // Update text
-            progressText.textContent = `${percent}% Complete`;
-            progressStep.textContent = `Step ${progress.step || 0} of ${progress.total_steps || 11}`;
-            progressMessage.textContent = progress.message || 'Processing...';
-            
-            console.log('DEBUG: Updated progress bar to', percent + '%', 'and step to', `${progress.step || 0}/${progress.total_steps || 11}`);
-            
-            // Update status class
-            progressStatus.className = `progress-status ${progress.status || 'running'}`;
-            
-            // Add operation details
-            if (progress.current_operation) {
-                const operationText = document.createElement('div');
-                operationText.style.fontSize = '12px';
-                operationText.style.color = '#6c757d';
-                operationText.style.marginTop = '5px';
-                operationText.textContent = `Currently: ${progress.current_operation}`;
+                addProgressEntry(`❌ Failed to start scan: ${error.message}`, 'error', new Date().toLocaleTimeString(), 'error');
+                updateStatusIndicator('error');
+                updateStepStatus('connection', 'error');
                 
-                // Remove previous operation text
-                const existing = progressStatus.querySelector('.operation-text');
-                if (existing) existing.remove();
-                
-                operationText.className = 'operation-text';
-                progressStatus.appendChild(operationText);
+                scanInProgress = false;
+                document.getElementById('scanButton').disabled = false;
+                document.getElementById('scanButton').textContent = 'Start Security Scan';
             }
         }
-        
-        function handleScanComplete(result) {
-            const scanBtn = document.getElementById('scan-btn');
-            const buttonText = document.getElementById('button-text');
-            const loadingSpinner = document.getElementById('loading-spinner');
-            const resultDiv = document.getElementById('scan-result');
-            const progressContainer = document.getElementById('progress-container');
-            
-            // Reset button state
-            scanBtn.disabled = false;
-            buttonText.textContent = '🚀 Start Security Scan';
-            loadingSpinner.style.display = 'none';
-            
-            // Hide progress after a short delay
-            setTimeout(() => {
-                progressContainer.style.display = 'none';
-            }, 3000);
-            
-            if (result.status === 'success' || result.status === 'completed') {
-                resultDiv.className = 'scan-result success';
-                
-                let resultHtml = `
-                    <h3><span class="status-indicator status-success"></span>Scan Completed Successfully!</h3>
-                    <div class="result-item">
-                        <strong>🎯 Target:</strong> ${result.host}
-                    </div>
-                    <div class="result-item">
-                        <strong>⏰ Completed:</strong> ${result.scan_timestamp}
-                    </div>
-                    <div class="result-item">
-                        <strong>🔗 Connection:</strong> ${result.connection_method}
-                    </div>
-                `;
-                
-                if (result.report_download_url) {
-                    resultHtml += `
-                        <div class="result-item">
-                            <strong>📄 Security Report:</strong>
-                            <a href="${result.report_download_url}" target="_blank" class="download-link">
-                                📥 Download PDF Report
-                            </a>
-                        </div>
-                    `;
-                }
-                
-                if (result.security_summary) {
-                    resultHtml += '<h4 style="margin-top: 20px; margin-bottom: 10px;">📊 Security Summary:</h4>';
-                    
-                    const summary = result.security_summary;
-                        const items = [
-                            { label: 'Open Ports', value: summary.total_open_ports, icon: '🔌' },
-                            { label: 'High Risk Ports', value: Array.isArray(summary.high_risk_ports) ? summary.high_risk_ports.length : summary.high_risk_ports, icon: '⚠️' },
-                            { label: 'Sensitive Files', value: summary.sensitive_files_count, icon: '📄' },
-                            { label: 'Laravel Issues', value: summary.laravel_security_issues, icon: '🅛' },
-                            { label: 'Node.js Issues', value: summary.nodejs_security_issues, icon: '📗' },
-                            { label: 'Python Issues', value: summary.python_security_issues || 0, icon: '🐍' },
-                            { label: 'Firewall Issues', value: summary.firewall_security_issues || 0, icon: '�' },
-                            { label: 'Docker Issues', value: summary.docker_issues_count, icon: '🐳' }
-                        ];
-                        
-                        items.forEach(item => {
-                            const statusClass = item.value > 0 ? 'status-warning' : 'status-success';
-                            resultHtml += `
-                                <div class="result-item">
-                                    <span class="status-indicator ${statusClass}"></span>
-                                    ${item.icon} <strong>${item.label}:</strong> ${item.value}
-                                </div>
-                            `;
-                        });
-                        
-                        // Add firewall status if available
-                        if (summary.firewall_status) {
-                            let firewallStatusClass = 'status-success';
-                            let firewallStatusText = summary.firewall_status;
-                            
-                            if (summary.firewall_status === 'critical') {
-                                firewallStatusClass = 'status-error';
-                                firewallStatusText = 'Critical Issues';
-                            } else if (summary.firewall_status === 'warning') {
-                                firewallStatusClass = 'status-warning';
-                                firewallStatusText = 'Warnings Found';
-                            } else if (summary.firewall_status === 'secure') {
-                                firewallStatusClass = 'status-success';
-                                firewallStatusText = 'Secure';
-                            }
-                            
-                            resultHtml += `
-                                <div class="result-item">
-                                    <span class="status-indicator ${firewallStatusClass}"></span>
-                                    🔒 <strong>Firewall Status:</strong> ${firewallStatusText}
-                                </div>
-                            `;
-                        }
-                }
-                
-                resultDiv.innerHTML = resultHtml;
-                
-            } else {
-                handleScanError(result.error || result.message || 'Scan failed');
-            }
-            
-            resultDiv.style.display = 'block';
-            resultDiv.scrollIntoView({ behavior: 'smooth' });
-            
-            // Refresh reports list
-            setTimeout(loadReports, 1000);
-        }
-        
-        function handleScanError(errorMessage) {
-            const scanBtn = document.getElementById('scan-btn');
-            const buttonText = document.getElementById('button-text');
-            const loadingSpinner = document.getElementById('loading-spinner');
-            const resultDiv = document.getElementById('scan-result');
-            const progressContainer = document.getElementById('progress-container');
-            
-            // Reset button state
-            scanBtn.disabled = false;
-            buttonText.textContent = '🚀 Start Security Scan';
-            loadingSpinner.style.display = 'none';
-            progressContainer.style.display = 'none';
-            
-            resultDiv.className = 'scan-result error';
-            resultDiv.innerHTML = `
-                <h3><span class="status-indicator status-error"></span>Scan Failed</h3>
-                <div class="result-item">
-                    <strong>❌ Error:</strong> ${errorMessage}
-                </div>
-                <div style="margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 5px; font-size: 12px;">
-                    <strong>Troubleshooting Tips:</strong>
-                    <ul style="margin-top: 5px; padding-left: 20px;">
-                        <li>Verify the server IP/hostname is correct</li>
-                        <li>Check if SSH port is accessible</li>
-                        <li>Ensure credentials are valid</li>
-                        <li>Confirm server is running and accessible</li>
-                    </ul>
-                </div>
-            `;
-            resultDiv.style.display = 'block';
-        }
-        
-        // Initialize page
-        document.addEventListener('DOMContentLoaded', function() {
-            loadReports();
-            
-            // Add some form validation
-            const form = document.getElementById('scan-form');
-            const inputs = form.querySelectorAll('input[required]');
-            
-            inputs.forEach(input => {
-                input.addEventListener('blur', function() {
-                    if (this.value.trim() === '') {
-                        this.style.borderColor = '#dc3545';
-                    } else {
-                        this.style.borderColor = '#28a745';
-                    }
-                });
-                
-                input.addEventListener('input', function() {
-                    if (this.style.borderColor === 'rgb(220, 53, 69)') {
-                        this.style.borderColor = '#e0e6ed';
-                    }
-                });
-            });
-        });
-    </script>
-</body>
-</html>
-        </div>
-        
-        <div class="form-group" id="key_passphrase_field" style="display: none;">
-            <label for="key_passphrase">Key Passphrase:</label>
-            <input type="password" id="key_passphrase" name="key_passphrase" placeholder="Enter passphrase (if required)">
-            <span class="optional">(optional)</span>
-        </div>
-        
-        <div class="form-group">
-            <label for="project_path">Project Path:</label>
-            <input type="text" id="project_path" name="project_path" value="/www/wwwroot/team1/damon/" placeholder="/var/www/html">
-        </div>
-        
-        <div class="form-group">
-            <label for="stack_name">Docker Stack Name:</label>
-            <input type="text" id="stack_name" name="stack_name" placeholder="myapp-stack">
-            <span class="optional">(optional - for Docker Swarm)</span>
-        </div>
-        
-        <div class="form-group">
-            <input type="submit" value="Start Security Scan" class="submit-btn">
-        </div>
-    </form>
 
-    <div style="margin-top: 30px;">
-        <h3>Available Reports</h3>
-        <div id="reports-list">
-            <button type="button" onclick="loadReports()" style="padding: 8px 15px;">Refresh Reports List</button>
-            <div id="reports-container" style="margin-top: 10px;"></div>
-        </div>
-    </div>
-
-    <script>
-        function toggleAuthFields() {
-            const authMethod = document.getElementById('auth_method').value;
-            const passwordField = document.getElementById('password_field');
-            const sshKeyField = document.getElementById('ssh_key_field');
-            const keyPassphraseField = document.getElementById('key_passphrase_field');
-            
-            if (authMethod === 'password') {
-                passwordField.style.display = 'block';
-                sshKeyField.style.display = 'none';
-                keyPassphraseField.style.display = 'none';
-                document.getElementById('password').required = true;
-                document.getElementById('ssh_key').required = false;
-            } else {
-                passwordField.style.display = 'none';
-                sshKeyField.style.display = 'block';
-                keyPassphraseField.style.display = 'block';
-                document.getElementById('password').required = false;
-                document.getElementById('ssh_key').required = true;
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (eventSource) {
+                eventSource.close();
             }
-        }
-        
-        async function loadReports() {
-            try {
-                const response = await fetch('/reports');
-                const data = await response.json();
-                const container = document.getElementById('reports-container');
-                
-                if (data.reports && data.reports.length > 0) {
-                    container.innerHTML = '<h4>Available Security Reports:</h4>';
-                    data.reports.forEach(report => {
-                        const reportDiv = document.createElement('div');
-                        reportDiv.style.margin = '5px 0';
-                        reportDiv.innerHTML = `
-                            <a href="${report.download_url}" target="_blank" style="text-decoration: none; color: #007bff;">
-                                [PDF] ${report.filename}
-                            </a>
-                            <span style="color: #666; font-size: 12px; margin-left: 10px;">
-                                (${Math.round(report.size / 1024)} KB)
-                            </span>
-                        `;
-                        container.appendChild(reportDiv);
-                    });
-                } else {
-                    container.innerHTML = '<p style="color: #666;">No reports available yet. Run a scan to generate reports.</p>';
-                }
-            } catch (error) {
-                document.getElementById('reports-container').innerHTML = '<p style="color: #f00;">Error loading reports</p>';
-            }
-        }
-        
-        // Handle form submission with AJAX to show results
-        document.getElementById('scan-form').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const formData = new FormData(this);
-            const submitBtn = document.querySelector('.submit-btn');
-            
-            submitBtn.value = 'Scanning...';
-            submitBtn.disabled = true;
-            
-            try {
-                const response = await fetch('/scan', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const result = await response.json();
-                const resultDiv = document.getElementById('scan-result');
-                
-                if (result.status === 'success') {
-                    let resultHtml = '<h3>Scan Results</h3>';
-                    resultHtml += `<p><strong>Host:</strong> ${result.host}</p>`;
-                    resultHtml += `<p><strong>Scan Time:</strong> ${result.scan_timestamp}</p>`;
-                    
-                    if (result.report_download_url) {
-                        resultHtml += `<p><strong>Report:</strong> <a href="${result.report_download_url}" target="_blank" style="color: #007bff; text-decoration: none;">[PDF] Download Security Report</a></p>`;
-                    } else if (result.report_path) {
-                        const reportFilename = result.report_path.split('/').pop();
-                        resultHtml += `<p><strong>Report:</strong> <a href="/download-report/${reportFilename}" target="_blank" style="color: #007bff; text-decoration: none;">[PDF] Download Security Report</a></p>`;
-                    }
-                    
-                    if (result.security_summary) {
-                        resultHtml += '<h4>Security Summary:</h4><ul>';
-                        for (const [key, value] of Object.entries(result.security_summary)) {
-                            resultHtml += `<li><strong>${key.replace('_', ' ')}:</strong> ${value}</li>`;
-                        }
-                        resultHtml += '</ul>';
-                    }
-                    
-                    resultDiv.innerHTML = resultHtml;
-                } else {
-                    resultDiv.innerHTML = `<h3 style="color: red;">Scan Failed</h3><p>${result.error}</p>`;
-                }
-                
-                resultDiv.style.display = 'block';
-                loadReports(); // Refresh the reports list
-                
-            } catch (error) {
-                document.getElementById('scan-result').innerHTML = '<h3 style="color: red;">Error</h3><p>Failed to perform scan</p>';
-                document.getElementById('scan-result').style.display = 'block';
-            }
-            
-            submitBtn.value = 'Start Security Scan';
-            submitBtn.disabled = false;
         });
-        
-        // Initialize form on page load
-        toggleAuthFields();
-        loadReports();
     </script>
 </body>
 </html>

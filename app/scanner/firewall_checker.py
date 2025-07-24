@@ -49,7 +49,7 @@ def check_firewall_rules(conn, target_host, open_ports):
         logger.info(f"Firewall check completed for {target_host}")
         
     except Exception as e:
-        logger.error(f"Error checking firewall rules: {e}")
+        logger.error(f"Error checking firewall rules: {e}", exc_info=True)
         firewall_results['error'] = str(e)
     
     return firewall_results
@@ -80,7 +80,7 @@ def get_server_local_ip(conn):
         return "unknown"
         
     except Exception as e:
-        logger.error(f"Error getting server local IP: {e}")
+        logger.error(f"Error getting server local IP: {e}", exc_info=True)
         return "unknown"
 
 def get_iptables_rules(conn):
@@ -95,7 +95,7 @@ def get_iptables_rules(conn):
             logger.info("iptables not available or no permission")
             return []
     except Exception as e:
-        logger.error(f"Error getting iptables rules: {e}")
+        logger.error(f"Error getting iptables rules: {e}", exc_info=True)
         return []
 
 def get_ufw_status(conn):
@@ -110,7 +110,7 @@ def get_ufw_status(conn):
             logger.info("UFW not available")
             return None
     except Exception as e:
-        logger.error(f"Error getting UFW status: {e}")
+        logger.error(f"Error getting UFW status: {e}", exc_info=True)
         return None
 
 def test_port_accessibility(target_host, open_ports, server_local_ip):

@@ -64,7 +64,7 @@ source venv/bin/activate  # Linux/Mac
 # or
 venv\Scripts\activate.bat  # Windows
 
-# Start the server (IMPORTANT: Must be run from app directory)
+# Start the server
 cd app
 uvicorn main:app --reload --host 0.0.0.0 --port 8081
 ```

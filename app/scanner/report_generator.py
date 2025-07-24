@@ -3,6 +3,7 @@ import uuid
 import os
 import json
 from datetime import datetime
+from utils.logger import logger
 
 def sanitize_text(text):
     """
@@ -335,170 +336,354 @@ def generate_pdf_report(scan_data):
     """
     Generate a comprehensive PDF report for security scan results
     """
-    # Sanitize all scan data before processing
-    scan_data = sanitize_scan_data(scan_data)
-    
-    pdf = SecurityReportPDF()
-    pdf.add_page()
-    
-    # Report Header Information
-    pdf.add_title("Executive Summary")
-    
-    # Basic scan information
-    host = scan_data.get('host', 'Unknown')
-    scan_time = scan_data.get('scan_timestamp', 'Unknown')
-    connection_method = scan_data.get('connection_method', 'Unknown')
-    
-    pdf.add_text(f"Target Host: {host}")
-    pdf.add_text(f"Scan Time: {scan_time}")
-    pdf.add_text(f"Connection Method: {connection_method}")
-    pdf.ln(8)
-    
-    # Security Summary
-    security_summary = scan_data.get('security_summary', {})
-    if security_summary:
-        pdf.add_subtitle("Security Overview")
-        for key, value in security_summary.items():
-            pdf.add_text(f"{key.replace('_', ' ').title()}: {value}")
-        pdf.ln(5)
-    
-    # Open Ports Section
-    pdf.add_page()
-    pdf.add_title("Port Analysis")
-    open_ports = scan_data.get('open_ports', {})
-    if isinstance(open_ports, dict):
-        if open_ports.get('open_ports'):
-            pdf.add_subtitle("Open Ports Detected")
-            for port in open_ports['open_ports']:
-                pdf.add_bullet_point(f"Port {port}")
+    try:
+        logger.info("Starting PDF report generation")
         
-        if open_ports.get('globally_accessible_ports'):
-            pdf.add_subtitle("Globally Accessible Ports")
-            for port in open_ports['globally_accessible_ports']:
-                pdf.add_status_badge('critical', f"Port {port} - Accessible from anywhere")
+        # Sanitize all scan data before processing
+        scan_data = sanitize_scan_data(scan_data)
         
-        if open_ports.get('restricted_ports'):
-            pdf.add_subtitle("Restricted Ports")
-            for port in open_ports['restricted_ports']:
-                pdf.add_status_badge('secure', f"Port {port} - Access restricted")
-    
-    # Sensitive Files Section
-    pdf.add_page()
-    pdf.add_title("Sensitive Files Analysis")
-    sensitive_files = scan_data.get('sensitive_files', [])
-    if sensitive_files:
-        for file_info in sensitive_files:
-            if isinstance(file_info, dict):
-                filename = file_info.get('filename', 'Unknown')
-                full_path = file_info.get('full_path', 'Unknown')
-                security_status = file_info.get('security_status', 'unknown')
-                
-                pdf.add_subtitle(f"File: {filename}")
-                pdf.add_text(f"Path: {full_path}")
-                
-                # Status badge for security status
-                if security_status == 'critical':
-                    pdf.add_status_badge('critical', f"Security Status: {security_status.upper()}")
-                elif security_status == 'warning':
-                    pdf.add_status_badge('warning', f"Security Status: {security_status.upper()}")
-                else:
-                    pdf.add_status_badge('secure', f"Security Status: {security_status.upper()}")
-                
-                # File permissions
-                permissions = file_info.get('permissions', {})
-                if permissions:
-                    pdf.add_text(f"Permissions: {permissions.get('octal', 'Unknown')}")
-                    if permissions.get('world_readable'):
-                        pdf.add_status_badge('warning', "File is world-readable")
-                    if permissions.get('world_writable'):
-                        pdf.add_status_badge('critical', "File is world-writable")
-                
-                # Public accessibility
-                public_access = file_info.get('public_accessible', {})
-                if public_access and public_access.get('potentially_public'):
-                    pdf.add_status_badge('critical', "File may be publicly accessible via web server")
-                
-                pdf.ln(5)
-    else:
-        pdf.add_text("No sensitive files detected or error occurred during scan.")
-    
-    # Laravel Security Section
-    laravel_security = scan_data.get('laravel_security', {})
-    if laravel_security.get('laravel_found'):
+        pdf = SecurityReportPDF()
         pdf.add_page()
-        pdf.add_title("Laravel Security Analysis")
         
-        # Environment file checks
-        env_checks = laravel_security.get('env_file_checks', {})
-        if env_checks:
-            pdf.add_subtitle("Environment Configuration")
-            
-            app_debug = env_checks.get('app_debug', {})
-            if not app_debug.get('secure', False):
-                pdf.add_status_badge('critical', f"APP_DEBUG = {app_debug.get('value', 'Unknown')} (Should be false)")
-            else:
-                pdf.add_status_badge('secure', f"APP_DEBUG properly configured")
-            
-            app_env = env_checks.get('app_env', {})
-            if not app_env.get('secure', False):
-                pdf.add_status_badge('warning', f"APP_ENV = {app_env.get('value', 'Unknown')} (Should be production)")
-            else:
-                pdf.add_status_badge('secure', f"APP_ENV set to production")
-            
-            app_key = env_checks.get('app_key', {})
-            if not app_key.get('secure', False):
-                pdf.add_status_badge('critical', "APP_KEY is missing or insecure")
-            else:
-                pdf.add_status_badge('secure', "APP_KEY properly configured")
+        # Basic scan information
+        host = scan_data.get('host', 'Unknown')
+        scan_time = scan_data.get('scan_timestamp', 'Unknown')
+        connection_method = scan_data.get('connection_method', 'Unknown')
         
-        # Cache status
-        cache_checks = laravel_security.get('cache_checks', {})
-        if cache_checks:
-            pdf.add_subtitle("Performance Optimization")
+        # Report Header Information - with basic error handling
+        try:
+            logger.info("Generating report header and executive summary")
+            pdf.add_title("Executive Summary")
             
-            view_cache = cache_checks.get('view_cache', {})
-            if not view_cache.get('cached', False):
-                pdf.add_bullet_point("View caching not enabled - Run: php artisan view:cache")
-            else:
-                pdf.add_status_badge('secure', "View caching enabled")
+            pdf.add_text(f"Target Host: {host}")
+            pdf.add_text(f"Scan Time: {scan_time}")
+            pdf.add_text(f"Connection Method: {connection_method}")
+            pdf.ln(8)
             
-            config_cache = cache_checks.get('config_cache', {})
-            if not config_cache.get('cached', False):
-                pdf.add_bullet_point("Config caching not enabled - Run: php artisan config:cache")
-            else:
-                pdf.add_status_badge('secure', "Config caching enabled")
-            
-            route_cache = cache_checks.get('route_cache', {})
-            if not route_cache.get('cached', False):
-                pdf.add_bullet_point("Route caching not enabled - Run: php artisan route:cache")
-            else:
-                pdf.add_status_badge('secure', "Route caching enabled")
+            # Security Summary
+            security_summary = scan_data.get('security_summary', {})
+            if security_summary:
+                pdf.add_subtitle("Security Overview")
+                for key, value in security_summary.items():
+                    pdf.add_text(f"{key.replace('_', ' ').title()}: {value}")
+                pdf.ln(5)
+        except Exception as e:
+            logger.error(f"Error generating report header: {e}", exc_info=True)
+            pdf.add_text(f"Error generating header section: {str(e)}")
         
-        # Security summary
-        security_summary = laravel_security.get('security_summary', {})
-        if security_summary:
-            pdf.add_subtitle("Laravel Security Summary")
+        # Open Ports Section
+        try:
+            logger.info("Generating detailed port analysis section")
+            generate_port_analysis_section(pdf, scan_data)
+        except Exception as e:
+            logger.error(f"Error generating port analysis section: {e}", exc_info=True)
+            pdf.add_page()
+            pdf.add_title("Port Analysis - Error")
+            pdf.add_text(f"Error generating port analysis: {str(e)}")
+
+        # Laravel Security Section
+        generate_laravel_section(pdf, scan_data)
+
+        # Node.js Security Section
+        generate_nodejs_section(pdf, scan_data)
+
+        # Python Security Section  
+        generate_python_section(pdf, scan_data)
+
+        # Docker Security Section
+        try:
+            docker_security = scan_data.get('docker_security', {})
+            if docker_security.get('docker_found'):
+                logger.info("Generating Docker security analysis section")
+                pdf.add_page()
+                pdf.add_title("Docker Security Analysis")
+                
+                # Docker containers
+                containers = docker_security.get('containers', [])
+                if containers:
+                    pdf.add_subtitle("Docker Containers")
+                    for container in containers[:10]:  # Show first 10
+                        name = container.get('name', 'Unknown')
+                        status = container.get('status', 'Unknown')
+                        image = container.get('image', 'Unknown')
+                        
+                        pdf.add_text(f"Container: {name}")
+                        pdf.add_text(f"  Status: {status}")
+                        pdf.add_text(f"  Image: {image}")
+                        pdf.ln(2)
+                
+                # Docker images
+                images = docker_security.get('images', [])
+                if images:
+                    pdf.add_subtitle("Docker Images")
+                    pdf.add_text(f"Total images: {len(images)}")
+                    for image in images[:5]:  # Show first 5
+                        pdf.add_bullet_point(f"{image.get('repository', 'Unknown')}:{image.get('tag', 'Unknown')}")
+                
+                # Security issues
+                security_issues = docker_security.get('security_issues', [])
+                if security_issues:
+                    pdf.add_subtitle("Docker Security Issues")
+                    for issue in security_issues:
+                        pdf.add_status_badge('warning', issue)
+                
+        except Exception as e:
+            logger.error(f"Error generating Docker security section: {e}", exc_info=True)
+            docker_security = scan_data.get('docker_security', {})
+            if docker_security.get('docker_found'):
+                pdf.add_page()
+                pdf.add_title("Docker Security Analysis - Error")
+                pdf.add_text(f"Error generating Docker analysis: {str(e)}")
+
+        # Generate unique filename and save PDF
+        logger.info("Saving PDF report")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"security_report_{host}_{timestamp}.pdf"
+        
+        # Ensure reports directory exists
+        reports_dir = os.path.join(os.getcwd(), "reports")
+        os.makedirs(reports_dir, exist_ok=True)
+        
+        filepath = os.path.join(reports_dir, filename)
+        pdf.output(filepath)
+        
+        logger.info(f"PDF report successfully generated: {filepath}")
+        return filepath
+        
+    except Exception as e:
+        logger.error(f"Critical error in PDF report generation: {e}", exc_info=True)
+        # Create a minimal error report
+        try:
+            error_pdf = SecurityReportPDF()
+            error_pdf.add_page()
+            error_pdf.add_title("Security Report - Generation Error")
+            error_pdf.add_text(f"Error occurred while generating report: {str(e)}")
+            error_pdf.add_text(f"Host: {scan_data.get('host', 'Unknown')}")
+            error_pdf.add_text(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             
-            critical_issues = security_summary.get('critical_issues', [])
-            if critical_issues:
-                pdf.add_subtitle("Critical Issues")
-                for issue in critical_issues:
-                    pdf.add_status_badge('critical', issue)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            error_filename = f"error_report_{timestamp}.pdf"
+            error_pdf.output(error_filename)
             
-            warnings = security_summary.get('warnings', [])
-            if warnings:
-                pdf.add_subtitle("Warnings")
-                for warning in warnings:
-                    pdf.add_status_badge('warning', warning)
+            logger.info(f"Error report generated: {error_filename}")
+            return error_filename
             
-            recommendations = security_summary.get('recommendations', [])
-            if recommendations:
-                pdf.add_subtitle('Recommendations')
-                for rec in recommendations:
-                    pdf.add_bullet_point(rec)
+        except Exception as critical_error:
+            logger.error(f"Critical failure in error report generation: {critical_error}", exc_info=True)
+            raise Exception(f"Complete PDF generation failure: {str(e)}")
+
+def generate_port_analysis_section(pdf, scan_data):
+    """
+    Generate detailed port analysis section for the PDF report
+    """
+    try:
+        logger.info("Generating detailed port analysis section")
+        pdf.add_page()
+        pdf.add_title("Detailed Port Analysis")
+        
+        # Get port scan data
+        port_scan_data = scan_data.get('port_scan', {})
+        open_ports_data = scan_data.get('open_ports', {})
+        
+        # Basic port information
+        if port_scan_data:
+            pdf.add_subtitle("Port Scan Summary")
+            scan_type = port_scan_data.get('scan_type', 'Unknown')
+            total_scanned = port_scan_data.get('total_ports_scanned', 0)
+            total_open = port_scan_data.get('total_open_ports', 0)
+            scan_duration = port_scan_data.get('scan_duration_seconds', 0)
+            
+            pdf.add_text(f"Scan Type: {scan_type}")
+            pdf.add_text(f"Total Ports Scanned: {total_scanned}")
+            pdf.add_text(f"Open Ports Found: {total_open}")
+            pdf.add_text(f"Scan Duration: {scan_duration} seconds")
+            pdf.ln(5)
+        
+        # Detailed port information
+        port_details = port_scan_data.get('port_details', {})
+        if port_details:
+            pdf.add_subtitle("Detailed Port Information")
+            
+            for port, details in port_details.items():
+                try:
+                    service = details.get('service', 'unknown')
+                    protocol = details.get('protocol', 'tcp')
+                    state = details.get('state', 'unknown')
+                    service_desc = details.get('service_description', 'Unknown service')
+                    
+                    pdf.add_text(f"Port {port}/{protocol} - {service.upper()}")
+                    pdf.add_text(f"  State: {state}")
+                    pdf.add_text(f"  Service: {service_desc}")
+                    
+                    # Version information if available
+                    version = details.get('version', '')
+                    product = details.get('product', '')
+                    if product or version:
+                        version_info = f"{product} {version}".strip()
+                        pdf.add_text(f"  Version: {version_info}")
+                    
+                    # Accessibility information
+                    accessibility = details.get('accessibility', {})
+                    if accessibility:
+                        globally_accessible = accessibility.get('globally_accessible', False)
+                        if globally_accessible:
+                            pdf.add_status_badge('critical', "Globally Accessible")
+                        else:
+                            pdf.add_status_badge('secure', "Restricted Access")
+                        
+                        # Firewall rules
+                        firewall_rules = accessibility.get('firewall_rules', [])
+                        if firewall_rules:
+                            pdf.add_text(f"  Firewall Rules:")
+                            for rule in firewall_rules[:3]:  # Show first 3 rules
+                                action = rule.get('action', 'Unknown')
+                                source = rule.get('source', 'Unknown')
+                                pdf.add_text(f"    {action} from {source}")
+                    
+                    pdf.ln(3)
+                except Exception as port_error:
+                    logger.error(f"Error processing port {port}: {port_error}", exc_info=True)
+                    pdf.add_text(f"Port {port}: Error processing details")
+                    pdf.ln(2)
+        
+        # Port accessibility summary
+        if isinstance(open_ports_data, dict):
+            if open_ports_data.get('open_ports'):
+                pdf.add_subtitle("Open Ports Summary")
+                for port in open_ports_data['open_ports']:
+                    pdf.add_bullet_point(f"Port {port}")
+            
+            if open_ports_data.get('globally_accessible_ports'):
+                pdf.add_subtitle("Globally Accessible Ports")
+                for port in open_ports_data['globally_accessible_ports']:
+                    pdf.add_status_badge('critical', f"Port {port} - Accessible from anywhere")
+            
+            if open_ports_data.get('restricted_ports'):
+                pdf.add_subtitle("Restricted Access Ports")
+                for port_info in open_ports_data['restricted_ports']:
+                    if isinstance(port_info, dict):
+                        port = port_info.get('port', 'Unknown')
+                        allowed_ips = port_info.get('allowed_ips', [])
+                        pdf.add_status_badge('info', f"Port {port} - Restricted to: {', '.join(allowed_ips[:3])}")
+                    else:
+                        pdf.add_status_badge('secure', f"Port {port_info} - Access restricted")
+        
+        # Firewall information
+        firewall_info = port_scan_data.get('firewall_info', {})
+        if firewall_info:
+            pdf.add_subtitle("Firewall Configuration")
+            
+            ufw_active = firewall_info.get('ufw_active', False)
+            firewall_detected = firewall_info.get('firewall_detected', False)
+            
+            if ufw_active:
+                pdf.add_status_badge('secure', "UFW Firewall is active")
+            elif firewall_detected:
+                pdf.add_status_badge('info', "Firewall detected but status unknown")
+            else:
+                pdf.add_status_badge('warning', "No firewall detected")
     
-    # Node.js Security Section
+    except Exception as e:
+        logger.error(f"Error generating port analysis section: {e}", exc_info=True)
+        pdf.add_text(f"Error generating port analysis: {str(e)}")
+
+
+# Sensitive Files Section Function
+def generate_sensitive_files_section(pdf, scan_data):
+    """Generate sensitive files analysis section"""
+    try:
+        logger.info("Generating sensitive files analysis section")
+        pdf.add_page()
+        pdf.add_title("Sensitive Files Analysis")
+        sensitive_files = scan_data.get('sensitive_files', [])
+        if sensitive_files:
+            for file_info in sensitive_files:
+                if isinstance(file_info, dict):
+                    filename = file_info.get('filename', 'Unknown')
+                    full_path = file_info.get('full_path', 'Unknown')
+                    security_status = file_info.get('security_status', 'unknown')
+                    
+                    pdf.add_subtitle(f"File: {filename}")
+                    pdf.add_text(f"Path: {full_path}")
+                    
+                    # Status badge for security status
+                    if security_status == 'critical':
+                        pdf.add_status_badge('critical', f"Security Status: {security_status.upper()}")
+                    elif security_status == 'warning':
+                        pdf.add_status_badge('warning', f"Security Status: {security_status.upper()}")
+                    else:
+                        pdf.add_status_badge('secure', f"Security Status: {security_status.upper()}")
+                    
+                    # File permissions
+                    permissions = file_info.get('permissions', {})
+                    if permissions:
+                        pdf.add_text(f"Permissions: {permissions.get('octal', 'Unknown')}")
+                        if permissions.get('world_readable'):
+                            pdf.add_status_badge('warning', "File is world-readable")
+                        if permissions.get('world_writable'):
+                            pdf.add_status_badge('critical', "File is world-writable")
+                    
+                    # Public accessibility
+                    public_access = file_info.get('public_accessible', {})
+                    if public_access and public_access.get('potentially_public'):
+                        pdf.add_status_badge('critical', "File may be publicly accessible via web server")
+                    
+                    pdf.ln(5)
+        else:
+            pdf.add_text("No sensitive files detected or error occurred during scan.")
+    except Exception as e:
+        logger.error(f"Error generating sensitive files section: {e}", exc_info=True)
+        pdf.add_text(f"Error generating sensitive files analysis: {str(e)}")
+
+
+# Laravel Security Section Function  
+def generate_laravel_section(pdf, scan_data):
+    """Generate Laravel security analysis section"""
+    try:
+        logger.info("Generating Laravel security analysis section")
+        laravel_security = scan_data.get('laravel_security', {})
+        if laravel_security.get('laravel_found'):
+            pdf.add_page()
+            pdf.add_title("Laravel Security Analysis")
+            
+            # Environment file checks
+            env_checks = laravel_security.get('env_file_checks', {})
+            if env_checks:
+                pdf.add_subtitle("Environment Configuration")
+                
+                try:
+                    app_debug = env_checks.get('app_debug', {})
+                    if not app_debug.get('secure', False):
+                        pdf.add_status_badge('critical', f"APP_DEBUG = {app_debug.get('value', 'Unknown')} (Should be false)")
+                    else:
+                        pdf.add_status_badge('secure', f"APP_DEBUG properly configured")
+                        
+                        app_env = env_checks.get('app_env', {})
+                        if not app_env.get('secure', False):
+                            pdf.add_status_badge('warning', f"APP_ENV = {app_env.get('value', 'Unknown')} (Should be production)")
+                        else:
+                            pdf.add_status_badge('secure', f"APP_ENV set to production")
+                        
+                    app_key = env_checks.get('app_key', {})
+                    if not app_key.get('secure', False):
+                        pdf.add_status_badge('critical', "APP_KEY is missing or insecure")
+                    else:
+                        pdf.add_status_badge('secure', "APP_KEY properly configured")
+                except Exception as e:
+                    logger.error(f"Error processing Laravel environment checks: {e}", exc_info=True)
+                    pdf.add_text(f"Error processing environment configuration: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error generating Laravel security section: {e}", exc_info=True)
+        if laravel_security.get('laravel_found'):
+            pdf.add_page()
+            pdf.add_title("Laravel Security Analysis - Error")
+            pdf.add_text(f"Error generating Laravel analysis: {str(e)}")
+
+# Node.js Security Section Function
+def generate_nodejs_section(pdf, scan_data):
+    """Generate Node.js security analysis section"""
     nodejs_security = scan_data.get('nodejs_security', {})
+    
     if nodejs_security.get('nodejs_found'):
         pdf.add_page()
         pdf.add_title("Node.js Security Analysis")
@@ -670,8 +855,10 @@ def generate_pdf_report(scan_data):
                 pdf.add_subtitle("Recommendations")
                 for rec in recommendations:
                     pdf.add_bullet_point(rec)
-    
-    # Python Security Section
+
+# Python Security Section Function
+def generate_python_section(pdf, scan_data):
+    """Generate Python security analysis section"""
     python_security = scan_data.get('python_security', {})
     if python_security.get('python_found'):
         pdf.add_page()
@@ -897,49 +1084,49 @@ def generate_pdf_report(scan_data):
                 pdf.add_subtitle("Recommendations")
                 for rec in recommendations:
                     pdf.add_bullet_point(rec)
-    
-    # Firewall Security Section
-    firewall_security = scan_data.get('firewall_security', {})
-    if firewall_security and not firewall_security.get('error'):
-        pdf.add_page()
-        pdf.add_title("Firewall & Port Security Analysis")
-        
-        # Firewall overview
-        target_host = firewall_security.get('target_host', 'Unknown')
-        office_ip = firewall_security.get('office_ip', 'Unknown')
-        firewall_status = firewall_security.get('firewall_status', 'unknown')
-        
-        pdf.add_subtitle("Firewall Configuration Overview")
-        pdf.add_text(f"Target Host: {target_host}")
-        pdf.add_text(f"Office IP: {office_ip}")
-        
-        # Firewall status
-        if firewall_status == 'secure':
-            pdf.add_status_badge('secure', "Firewall configuration is secure")
-        elif firewall_status == 'warning':
-            pdf.add_status_badge('warning', "Firewall configuration has warnings")
-        elif firewall_status == 'critical':
-            pdf.add_status_badge('critical', "Firewall configuration has critical issues")
-        else:
-            pdf.add_status_badge('info', "Firewall status unknown")
-        
-        # Server local IP
-        server_local_ip = firewall_security.get('server_local_ip', 'Unknown')
-        if server_local_ip != 'unknown':
-            pdf.add_text(f"Server Local IP: {server_local_ip}")
-        
-        # Firewall rules summary
-        iptables_rules = firewall_security.get('iptables_rules', [])
-        ufw_status = firewall_security.get('ufw_status')
-        
-        if iptables_rules:
-            pdf.add_status_badge('info', f"iptables rules found: {len(iptables_rules)} rules")
-        
-        if ufw_status:
-            if 'Status: active' in ufw_status:
-                pdf.add_status_badge('secure', "UFW firewall is active")
+
+        # Firewall Security Section (continue in main function)
+        firewall_security = scan_data.get('firewall_security', {})
+        if firewall_security and not firewall_security.get('error'):
+            pdf.add_page()
+            pdf.add_title("Firewall & Port Security Analysis")
+            
+            # Firewall overview
+            target_host = firewall_security.get('target_host', 'Unknown')
+            office_ip = firewall_security.get('office_ip', 'Unknown')
+            firewall_status = firewall_security.get('firewall_status', 'unknown')
+            
+            pdf.add_subtitle("Firewall Configuration Overview")
+            pdf.add_text(f"Target Host: {target_host}")
+            pdf.add_text(f"Office IP: {office_ip}")
+            
+            # Firewall status
+            if firewall_status == 'secure':
+                pdf.add_status_badge('secure', "Firewall configuration is secure")
+            elif firewall_status == 'warning':
+                pdf.add_status_badge('warning', "Firewall configuration has warnings")
+            elif firewall_status == 'critical':
+                pdf.add_status_badge('critical', "Firewall configuration has critical issues")
             else:
-                pdf.add_status_badge('warning', "UFW firewall status unclear")
+                pdf.add_status_badge('info', "Firewall status unknown")
+            
+            # Server local IP
+            server_local_ip = firewall_security.get('server_local_ip', 'Unknown')
+            if server_local_ip != 'unknown':
+                pdf.add_text(f"Server Local IP: {server_local_ip}")
+            
+            # Firewall rules summary
+            iptables_rules = firewall_security.get('iptables_rules', [])
+            ufw_status = firewall_security.get('ufw_status')
+            
+            if iptables_rules:
+                pdf.add_status_badge('info', f"iptables rules found: {len(iptables_rules)} rules")
+            
+            if ufw_status:
+                if 'Status: active' in ufw_status:
+                    pdf.add_status_badge('secure', "UFW firewall is active")
+                else:
+                    pdf.add_status_badge('warning', "UFW firewall status unclear")
         
         if not iptables_rules and not ufw_status:
             pdf.add_status_badge('warning', "No firewall configuration detected")
@@ -1076,9 +1263,11 @@ def generate_pdf_report(scan_data):
     all_recommendations = []
     
     # Collect all recommendations
+    laravel_security = scan_data.get('laravel_security', {})
     if laravel_security.get('security_summary', {}).get('recommendations'):
         all_recommendations.extend([f"Laravel: {rec}" for rec in laravel_security['security_summary']['recommendations']])
     
+    nodejs_security = scan_data.get('nodejs_security', {})
     if nodejs_security.get('security_summary', {}).get('recommendations'):
         all_recommendations.extend([f"Node.js: {rec}" for rec in nodejs_security['security_summary']['recommendations']])
     
@@ -1119,8 +1308,10 @@ def generate_pdf_report(scan_data):
         pdf.ln(5)
         pdf.add_status_badge('info', "No specific security issues found. Continue monitoring and following best practices.")
     
-    # Generate unique filename
+    # Generate unique filename and save PDF
+    logger.info("Saving PDF report")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    host = scan_data.get('host', 'unknown')
     filename = f"security_report_{host}_{timestamp}.pdf"
     
     # Ensure reports directory exists
@@ -1130,4 +1321,5 @@ def generate_pdf_report(scan_data):
     filepath = os.path.join(reports_dir, filename)
     pdf.output(filepath)
     
+    logger.info(f"PDF report successfully generated: {filepath}")
     return filepath

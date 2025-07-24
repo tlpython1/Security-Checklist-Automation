@@ -15,10 +15,12 @@ import time
 #Security Checker Module
 #This module provides functionality to perform a full security scan on a server. It connects to the server via SSH, scans for open ports, checks for sensitive files, and evaluates Docker security configurations. Finally, it generates a PDF report of the findings.
 def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_passphrase=None, comprehensive_scan=False, project_path='/www/wwwroot/team1/damon/', stack_name=None, progress_callback=None):
-    def update_progress(message, step_name=None):
-        """Helper function to update progress if callback is provided"""
+    
+    def update_progress(message, stage='info'):
+        """Helper function to send progress updates"""
         if progress_callback:
-            progress_callback.update('running', message, step_name)
+            progress_callback(message, stage)
+        logger.info(message)
     
     try:
         # Extract stack name from project path if not provided
@@ -47,7 +49,7 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
             logger.info(f"Using SSH key authentication for {username}@{host}")
         
         else:
-            logger.error("No authentication method provided")
+            logger.error("No authentication method provided", exc_info=True)
             return {"error": "No authentication method provided (password or SSH key required)"}
         
         # Initialize scan results
@@ -86,7 +88,7 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
             update_progress(f'✅ Connected to {host} successfully!', 'connection_established')
 
             # 1. Port scanning
-            update_progress('🔍 Port scanning - Scanning for open ports...', 'port_scan')
+            update_progress('🔍 Starting port scan...', 'port_scan')
             logger.info("Starting port scan...")
             comprehensive_scan = True
             open_ports = get_listening_ports_fast(host)
@@ -123,7 +125,7 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
                 
                 logger.info("System information gathered successfully")
             except Exception as e:
-                logger.error(f"Error gathering system info: {e}")
+                logger.error(f"Error gathering system info: {e}", exc_info=True)
                 scan_results['system_info']['error'] = str(e)
                 
             # 3. Check for sensitive files
@@ -137,10 +139,17 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
                 secure_count = sum(1 for f in sensitive_files if f.get('security_status') == 'secure')
                 warning_count = sum(1 for f in sensitive_files if f.get('security_status') == 'warning')
                 critical_count = sum(1 for f in sensitive_files if f.get('security_status') == 'critical')
+                error_count = sum(1 for f in sensitive_files if f.get('security_status') == 'error')
                 
-                logger.info(f"Sensitive files found: {len(sensitive_files)} (Secure: {secure_count}, Warning: {warning_count}, Critical: {critical_count})")
+                logger.info(f"Sensitive files found: {len(sensitive_files)} (Secure: {secure_count}, Warning: {warning_count}, Critical: {critical_count}, Errors: {error_count})")
+                
+                if len(sensitive_files) == 0:
+                    logger.info("No sensitive files found in the specified project path")
+                
             except Exception as e:
-                logger.error(f"Error checking sensitive files: {e}")
+                logger.error(f"Error checking sensitive files: {e}", exc_info=True)
+                scan_results['sensitive_files'] = []
+                scan_results['sensitive_files_error'] = str(e)
                 scan_results['sensitive_files'] = [f"Error: {str(e)}"]
 
             # 3.5. Check Laravel-specific security
@@ -159,7 +168,7 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
                 else:
                     logger.info("No Laravel project detected")
             except Exception as e:
-                logger.error(f"Error checking Laravel security: {e}")
+                logger.error(f"Error checking Laravel security: {e}", exc_info=True)
                 scan_results['laravel_security'] = {'error': str(e)}
 
             # 3.6. Check Node.js-specific security
@@ -183,7 +192,7 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
                 else:
                     logger.info("No Node.js project detected")
             except Exception as e:
-                logger.error(f"Error checking Node.js security: {e}")
+                logger.error(f"Error checking Node.js security: {e}", exc_info=True)
                 scan_results['nodejs_security'] = {'error': str(e)}
 
             # 3.7. Check Python-specific security
@@ -208,7 +217,7 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
                 else:
                     logger.info("No Python project detected")
             except Exception as e:
-                logger.error(f"Error checking Python security: {e}")
+                logger.error(f"Error checking Python security: {e}", exc_info=True)
                 scan_results['python_security'] = {'error': str(e)}
 
             # 3.8. Check Firewall and Port Security
@@ -235,7 +244,7 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
                     logger.warning(f"Found {critical_issues} critical firewall security issues")
                 
             except Exception as e:
-                logger.error(f"Error checking firewall security: {e}")
+                logger.error(f"Error checking firewall security: {e}", exc_info=True)
                 scan_results['firewall_security'] = {'error': str(e)}
 
             # 4. Check Docker security
@@ -249,7 +258,7 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
                 scan_results['docker_issues'] = docker_issues
                 logger.info(f"Docker issues found: {len(docker_issues)}")
             except Exception as e:
-                logger.error(f"Error checking Docker security: {e}")
+                logger.error(f"Error checking Docker security: {e}", exc_info=True)
                 scan_results['docker_issues'] = [f"Error: {str(e)}"]
 
             # 5. Security summary
@@ -274,16 +283,17 @@ def run_full_scan(host, port, username, password=None, ssh_key_path=None, key_pa
             scan_results['report_path'] = report_path
             logger.info(f"Report generated at: {report_path}")
         except Exception as e:
-            logger.error(f"Error generating report: {e}")
+            logger.error(f"Error generating report: {e}", exc_info=True)
             scan_results['report_error'] = str(e)
             
         # Mark scan as complete
         if progress_callback:
-            progress_callback.update('completed', '✅ Completed - Security scan completed successfully!', 'completed')
+            progress_callback('✅ Completed - Security scan completed successfully!', 'completed')
             
         return scan_results
             
     except Exception as e:
+        update_progress(f'❌ Scan failed: {str(e)}', 'error')
         logger.error(f"Failed to connect or scan: {e}",exc_info=True)
         return {
             "error": f"Failed to connect to the server: {e}",
@@ -337,5 +347,5 @@ def run_quick_scan(host, port, username, password=None, ssh_key_path=None, key_p
             }
             
     except Exception as e:
-        logger.error(f"Quick scan failed: {e}")
+        logger.error(f"Quick scan failed: {e}", exc_info=True)
         return {"error": f"Quick scan failed: {e}"}

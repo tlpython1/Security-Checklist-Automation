@@ -6,84 +6,81 @@ import re
 
 def get_common_ports():
     """
-    Return list of commonly familiar ports
+    Return list of most critical ports for fast scanning (24 essential ports)
     """
     return [
-        # Web Services
+        # Essential Web Services (9 ports)
         80,    # HTTP
         443,   # HTTPS
         8080,  # HTTP Alternative
-        8070,  # HTTP Alternative
-        8443,  # HTTPS Alternative
         8000,  # HTTP Development
-        3000,  # Laravel
-        4000,  # Ecom/Wordpress
+        3000,  # Node.js/Laravel
         5000,  # Flask/Development
-        9000,  # Various web services
-        8009, #Python Commission,
-        8001,#Mysql in Docker,
-        7000, #PhpMyAdmin,
+        8009,  # Python Commission
+        8001,  # MySQL in Docker
+        7000,  # PhpMyAdmin
         
-        # Remote Access
+        # Critical Remote Access (2 ports)
         22,    # SSH
-        23,    # Telnet
         3389,  # RDP (Windows Remote Desktop)
-        5900,  # VNC
-        5901,  # VNC
         
-        # Mail Services
-        25,    # SMTP
-        110,   # POP3
-        143,   # IMAP
-        993,   # IMAPS
-        995,   # POP3S
-        587,   # SMTP Submission
-        465,   # SMTPS
-        
-        # Database Services
+        # Essential Database Services (4 ports)
         3306,  # MySQL
         5432,  # PostgreSQL
-        1521,  # Oracle
-        1433,  # MS SQL Server
         27017, # MongoDB
         6379,  # Redis
-        6383,  # Redis (alternative port)
-        11211, # Memcached
         
-        # File Transfer
+        # Critical Mail Services (2 ports)
+        25,    # SMTP
+        587,   # SMTP Submission
+        
+        # File Transfer (1 port)
         21,    # FTP
-        20,    # FTP Data
-        69,    # TFTP
-        989,   # FTPS Data
-        990,   # FTPS
         
-        # Network Services
+        # Network Services (1 port)
         53,    # DNS
-        67,    # DHCP Server
-        68,    # DHCP Client
-        123,   # NTP
-        161,   # SNMP
-        162,   # SNMP Trap
         
-        # Windows/SMB Services
-        135,   # RPC
-        139,   # NetBIOS
+        # Windows/SMB Services (1 port)
         445,   # SMB
         
+        # Additional common ports (4 ports)
+        23,    # Telnet
+        4000,  # Development/Ecom
+        9000,  # Various web services
+        8443,  # HTTPS Alternative
+    ]
+
+def get_all_ports():
+    """
+    Return extended list of ports for comprehensive scanning
+    """
+    return [
+        # Web Services
+        80, 443, 8080, 8070, 8443, 8000, 3000, 4000, 5000, 9000, 8009, 8001, 7000,
+        
+        # Remote Access
+        22, 23, 3389, 5900, 5901,
+        
+        # Mail Services
+        25, 110, 143, 993, 995, 587, 465,
+        
+        # Database Services
+        3306, 5432, 1521, 1433, 27017, 6379, 6383, 11211,
+        
+        # File Transfer
+        21, 20, 69, 989, 990,
+        
+        # Network Services
+        53, 67, 68, 123, 161, 162,
+        
+        # Windows/SMB Services
+        135, 139, 445,
+        
         # Directory Services
-        389,   # LDAP
-        636,   # LDAPS
+        389, 636,
         
         # Other Common Services
-        111,   # RPC
-        113,   # Ident
-        119,   # NNTP
-        1723,  # PPTP
-        1194,  # OpenVPN
-        4444,  # Metasploit
-        8888,  # Alternative HTTP
-        9090,  # Various services
-        10000, # Webmin
+        111, 113, 119, 1723, 1194, 4444, 8888, 9090, 10000,
     ]
 
 def check_ufw_status():
@@ -193,12 +190,12 @@ def check_port_accessibility(host, port):
 
 def get_listening_ports_fast(host):
     """
-    Fast scan using nmap - common familiar ports only with accessibility check
+    Fast scan using nmap - essential ports only with optimized scanning
     """
     common_ports = get_common_ports()
     port_list = ','.join(map(str, common_ports))
     
-    print(f"Fast scanning {host} ({len(common_ports)} common ports)...")
+    print(f"Fast scanning {host} ({len(common_ports)} essential ports)...")
     start_time = time.time()
     
     try:
@@ -212,7 +209,92 @@ def get_listening_ports_fast(host):
         # Initialize nmap scanner
         nm = nmap.PortScanner()
         
-        # Fast scan of specific common ports
+        # Fast scan without service version detection for speed
+        # Using -T5 for fastest timing and removing -sV for speed
+        scan_result = nm.scan(host_ip, arguments=f'-p {port_list} -T5 --min-rate=1000')
+        
+        # Extract open ports
+        open_ports = []
+        port_details = {}
+        
+        if host_ip in nm.all_hosts():
+            for protocol in nm[host_ip].all_protocols():
+                ports = nm[host_ip][protocol].keys()
+                for port in ports:
+                    port_info = nm[host_ip][protocol][port]
+                    if port_info['state'] == 'open':
+                        open_ports.append(port)
+                        
+                        port_details[port] = {
+                            'protocol': protocol,
+                            'state': port_info['state'],
+                            'service': port_info.get('name', 'unknown'),
+                            'service_description': get_port_description(port),
+                            # Skip individual accessibility checks for speed, but provide basic structure
+                            'accessibility': {
+                                'globally_accessible': True,  # Default assumption for fast scan
+                                'restricted_ips': [],
+                                'firewall_rules': [],
+                                'firewall_type': 'none',
+                                'note': 'Fast scan mode - use comprehensive scan for detailed accessibility analysis'
+                            }
+                        }
+        
+        # Get overall firewall status once (not per port)
+        ufw_status = check_ufw_status()
+        firewall_info = {
+            'ufw_active': "Status: active" in ufw_status if ufw_status else False,
+            'firewall_detected': ufw_status is not None,
+            'ufw_output': ufw_status if ufw_status else "UFW not available"
+        }
+        
+        end_time = time.time()
+        scan_duration = round(end_time - start_time, 2)
+        
+        result = {
+            'host': host,
+            'host_ip': host_ip,
+            'scan_type': f'Fast ({len(common_ports)} Essential Ports)',
+            'total_ports_scanned': len(common_ports),
+            'open_ports': sorted(open_ports),
+            'total_open_ports': len(open_ports),
+            'port_details': port_details,
+            'firewall_info': firewall_info,
+            'scan_duration_seconds': scan_duration,
+            'scanned_ports': common_ports,
+            'note': 'Fast scan mode - use comprehensive scan for detailed analysis'
+        }
+        
+        print(f"Fast scan completed in {scan_duration} seconds")
+        print(f"Found {len(open_ports)} open ports: {sorted(open_ports)}")
+        
+        return result
+        
+    except Exception as e:
+        return {"error": f"Nmap scan failed: {str(e)}"}
+
+def get_listening_ports_comprehensive(host):
+    """
+    Comprehensive scan with full service detection and accessibility analysis
+    """
+    all_ports = get_all_ports()
+    port_list = ','.join(map(str, all_ports))
+    
+    print(f"Comprehensive scanning {host} ({len(all_ports)} ports)...")
+    start_time = time.time()
+    
+    try:
+        # Resolve hostname to IP
+        host_ip = socket.gethostbyname(host)
+        print(f"Resolved {host} to {host_ip}")
+    except socket.gaierror:
+        return {"error": f"Unable to resolve host: {host}"}
+    
+    try:
+        # Initialize nmap scanner
+        nm = nmap.PortScanner()
+        
+        # Comprehensive scan with service version detection
         scan_result = nm.scan(host_ip, arguments=f'-p {port_list} -T4 -sV')
         
         # Extract open ports
@@ -227,7 +309,7 @@ def get_listening_ports_fast(host):
                     if port_info['state'] == 'open':
                         open_ports.append(port)
                         
-                        # Check port accessibility
+                        # Check port accessibility for comprehensive scan
                         print(f"Checking accessibility for port {port}...")
                         accessibility = check_port_accessibility(host, port)
                         
@@ -245,7 +327,8 @@ def get_listening_ports_fast(host):
         ufw_status = check_ufw_status()
         firewall_info = {
             'ufw_active': "Status: active" in ufw_status if ufw_status else False,
-            'firewall_detected': ufw_status is not None
+            'firewall_detected': ufw_status is not None,
+            'ufw_output': ufw_status if ufw_status else "UFW not available"
         }
         
         end_time = time.time()
@@ -254,17 +337,17 @@ def get_listening_ports_fast(host):
         result = {
             'host': host,
             'host_ip': host_ip,
-            'scan_type': f'Fast ({len(common_ports)} Common Ports)',
-            'total_ports_scanned': len(common_ports),
+            'scan_type': f'Comprehensive ({len(all_ports)} Ports)',
+            'total_ports_scanned': len(all_ports),
             'open_ports': sorted(open_ports),
             'total_open_ports': len(open_ports),
             'port_details': port_details,
             'firewall_info': firewall_info,
             'scan_duration_seconds': scan_duration,
-            'scanned_ports': common_ports
+            'scanned_ports': all_ports
         }
         
-        print(f"Fast scan completed in {scan_duration} seconds")
+        print(f"Comprehensive scan completed in {scan_duration} seconds")
         print(f"Found {len(open_ports)} open ports: {sorted(open_ports)}")
         
         return result
@@ -275,11 +358,15 @@ def get_listening_ports_fast(host):
 def scan_host(host, scan_type='fast'):
     """
     Scan the host based on the specified scan type.
+    - fast: Quick scan of essential ports only (22-25 ports)
+    - comprehensive: Detailed scan with service detection and accessibility analysis
     """
     if scan_type == 'fast':
         return get_listening_ports_fast(host)
+    elif scan_type == 'comprehensive':
+        return get_listening_ports_comprehensive(host)
     else:
-        return {"error": f"Unsupported scan type: {scan_type}"}
+        return {"error": f"Unsupported scan type: {scan_type}. Use 'fast' or 'comprehensive'."}
 
 def get_port_description(port):
     """
@@ -419,18 +506,23 @@ def get_port_accessibility_summary(host, scan_type='fast'):
     }
     
     for port, details in result['port_details'].items():
-        accessibility = details['accessibility']
+        accessibility = details.get('accessibility', {})
         
-        if accessibility['globally_accessible']:
+        # Safely check for globally_accessible with default fallback
+        if accessibility.get('globally_accessible', False):
             summary['globally_accessible_ports'].append(port)
         
-        if accessibility['restricted_ips']:
+        # Safely check for restricted_ips
+        restricted_ips = accessibility.get('restricted_ips', [])
+        if restricted_ips:
             summary['restricted_ports'].append({
                 'port': port,
-                'allowed_ips': accessibility['restricted_ips']
+                'allowed_ips': restricted_ips
             })
         
-        if accessibility['firewall_rules']:
+        # Safely check for firewall_rules
+        firewall_rules = accessibility.get('firewall_rules', [])
+        if firewall_rules:
             summary['firewall_protected_ports'].append(port)
     
     return summary

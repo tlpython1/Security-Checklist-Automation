@@ -61,7 +61,7 @@ def check_nodejs_security(conn, project_path, stack_name=None):
             
     except Exception as e:
         results['error'] = str(e)
-        logger.error(f"Error checking Node.js security: {e}")
+        logger.error(f"Error checking Node.js security: {e}", exc_info=True)
     
     return results
 
@@ -134,11 +134,15 @@ def check_nodejs_env_file(conn, project_path):
         'env_file_exists': False,
         'node_env': {'value': None, 'secure': False, 'recommendation': 'Set NODE_ENV=production for production environment'},
         'port': {'value': None, 'secure': False, 'recommendation': 'Avoid using privileged ports (< 1024)'},
-        'database_url': {'exposed': False, 'recommendation': 'Ensure database credentials are not default'},
-        'jwt_secret': {'exists': False, 'secure': False, 'recommendation': 'Use strong JWT secret key'},
-        'api_keys': {'exposed': False, 'recommendation': 'Secure API keys and tokens'},
-        'cors_origin': {'value': None, 'secure': False, 'recommendation': 'Configure CORS origin properly'},
-        'ssl_config': {'enabled': False, 'recommendation': 'Enable SSL/TLS in production'}
+        'database_config': {'complete': False, 'secure': False, 'recommendation': 'Ensure database credentials are properly configured'},
+        'mail_config': {'complete': False, 'recommendation': 'Configure mail settings for production'},
+        'payment_config': {'secure': False, 'recommendation': 'Secure payment gateway configuration'},
+        'token_security': {'secure': False, 'recommendation': 'Use strong and unique token keys'},
+        'demo_status': {'value': None, 'secure': False, 'recommendation': 'Set DEMO_STATUS=NO for production'},
+        'prefix_config': {'value': None, 'configured': False, 'recommendation': 'Configure PREFIX properly'},
+        'url_security': {'secure': False, 'ip_based_urls': [], 'recommendation': 'Use domain names with HTTPS instead of IP addresses'},
+        'secret_keys': {'secure': False, 'recommendation': 'Use strong secret keys'},
+        'custom_checks': {}
     }
     
     try:
@@ -151,6 +155,12 @@ def check_nodejs_env_file(conn, project_path):
             # Read .env file content
             env_content = conn.run(f'cat "{project_path}/.env"', hide=True)
             env_lines = env_content.stdout.strip().split('\n')
+            
+            # Track database configuration completeness
+            mysql_fields = {'MYSQL_DB': None, 'MYSQL_USER': None, 'MYSQL_PASS': None, 'MYSQL_HOST': None, 'MYSQL_PORT': None}
+            mail_fields = {'MAIL_HOST': None, 'MAIL_PORT': None, 'MAIL_USERNAME': None, 'MAIL_PASSWORD': None}
+            url_fields = {'SITE_URL': None, 'ADMIN_URL': None, 'FRONTEND_URL': None, 'STORE_URL': None, 'IMAGE_URL': None, 'LOG_PATH': None}
+            token_fields = {'TOKEN_KEY': None, 'APP_TOKEN_KEY': None, 'SECRETKEY': None}
             
             for line in env_lines:
                 line = line.strip()
@@ -176,29 +186,65 @@ def check_nodejs_env_file(conn, project_path):
                         except ValueError:
                             env_checks['port']['secure'] = False
                     
-                    # Check database credentials
-                    elif any(db_key in key for db_key in ['DATABASE_URL', 'DB_PASSWORD', 'MONGO_URI', 'REDIS_URL']):
-                        if any(weak in value.lower() for weak in ['password', '123456', 'admin', 'root', '']):
-                            env_checks['database_url']['exposed'] = True
+                    # Check DEMO_STATUS
+                    elif key == 'DEMO_STATUS':
+                        env_checks['demo_status']['value'] = value
+                        env_checks['demo_status']['secure'] = value.upper() == 'NO'
                     
-                    # Check JWT secret
-                    elif 'JWT' in key and 'SECRET' in key:
-                        env_checks['jwt_secret']['exists'] = bool(value)
-                        env_checks['jwt_secret']['secure'] = len(value) > 32 and not value in ['secret', 'your-secret-key']
+                    # Check PREFIX
+                    elif key == 'PREFIX':
+                        env_checks['prefix_config']['value'] = value
+                        env_checks['prefix_config']['configured'] = bool(value and value != '')
                     
-                    # Check API keys
-                    elif any(api_key in key for api_key in ['API_KEY', 'SECRET_KEY', 'ACCESS_TOKEN']):
-                        if value and value.lower() not in ['null', '']:
-                            env_checks['api_keys']['exposed'] = True
+                    # Check MySQL database fields
+                    elif key in mysql_fields:
+                        mysql_fields[key] = value
                     
-                    # Check CORS origin
-                    elif 'CORS' in key and 'ORIGIN' in key:
-                        env_checks['cors_origin']['value'] = value
-                        env_checks['cors_origin']['secure'] = value != '*' and 'localhost' not in value.lower()
+                    # Check mail configuration fields
+                    elif key in mail_fields:
+                        mail_fields[key] = value
                     
-                    # Check SSL configuration
-                    elif any(ssl_key in key for ssl_key in ['SSL', 'HTTPS', 'TLS']):
-                        env_checks['ssl_config']['enabled'] = value.lower() in ['true', '1', 'yes', 'enabled']
+                    # Check URL fields for IP-based addresses
+                    elif key in url_fields:
+                        url_fields[key] = value
+                        if value and ('192.168.' in value or '127.0.0.1' in value or '10.' in value or 'localhost' in value):
+                            env_checks['url_security']['ip_based_urls'].append(f"{key}={value}")
+                    
+                    # Check token security
+                    elif key in token_fields:
+                        token_fields[key] = value
+            
+            # Validate database configuration completeness
+            env_checks['database_config']['complete'] = all(mysql_fields.values())
+            # Check for weak database passwords
+            mysql_pass = mysql_fields.get('MYSQL_PASS', '')
+            if mysql_pass and any(weak in mysql_pass.lower() for weak in ['password', '123456', 'admin', 'root']):
+                env_checks['database_config']['secure'] = False
+            else:
+                env_checks['database_config']['secure'] = bool(mysql_pass and len(mysql_pass) > 8)
+            
+            # Validate mail configuration
+            env_checks['mail_config']['complete'] = any(mail_fields.values())
+            
+            # Validate payment configuration
+            payment_check = any(key for line in env_lines if line.strip() and '=' in line for key in line.split('=')[0].strip().upper() if 'PAYPAL' in key or 'STRIPE' in key)
+            env_checks['payment_config']['secure'] = payment_check
+            
+            # Validate token security
+            token_secure = all(token and len(token) > 20 for token in token_fields.values() if token)
+            env_checks['token_security']['secure'] = token_secure
+            
+            # Check URL security (domain vs IP)
+            env_checks['url_security']['secure'] = len(env_checks['url_security']['ip_based_urls']) == 0
+            
+            # Custom security checks
+            env_checks['custom_checks'] = {
+                'mysql_config_complete': all(mysql_fields.values()),
+                'demo_status_production': env_checks['demo_status']['secure'],
+                'prefix_configured': env_checks['prefix_config']['configured'],
+                'urls_domain_based': env_checks['url_security']['secure'],
+                'strong_tokens': env_checks['token_security']['secure']
+            }
         
         else:
             env_checks['env_file_exists'] = False
@@ -502,7 +548,7 @@ def check_nodejs_docker_config(conn, project_path, stack_name=None):
                                     # Check security inside the Node.js container
                                     docker_checks = check_nodejs_container_security(conn, service, container_name, docker_checks)
                             except Exception as e:
-                                logger.error(f"Error checking service {service}: {e}")
+                                logger.error(f"Error checking service {service}: {e}", exc_info=True)
                     else:
                         logger.info("No Node.js services (user_backend*) found in the stack")
                 else:
@@ -518,7 +564,7 @@ def check_nodejs_docker_config(conn, project_path, stack_name=None):
         
     except Exception as e:
         docker_checks['error'] = str(e)
-        logger.error(f"Error in Docker configuration check: {e}")
+        logger.error(f"Error in Docker configuration check: {e}", exc_info=True)
     
     return docker_checks
 
@@ -580,7 +626,7 @@ def check_nodejs_container_security(conn, service_name, container_name, docker_c
             logger.info(f"Health check endpoint found in container {container_name}")
         
     except Exception as e:
-        logger.error(f"Error checking container security for {container_name}: {e}")
+        logger.error(f"Error checking container security for {container_name}: {e}", exc_info=True)
         docker_checks['security_issues'].append(f'Error checking container {container_name}: {str(e)}')
     
     return docker_checks
@@ -766,7 +812,7 @@ def check_nodejs_swarm_config(conn, stack_name):
     
     except Exception as e:
         swarm_checks['error'] = str(e)
-        logger.error(f"Error checking Swarm configuration: {e}")
+        logger.error(f"Error checking Swarm configuration: {e}", exc_info=True)
     
     return swarm_checks
 
@@ -798,8 +844,17 @@ def generate_nodejs_security_summary(results):
     if env_checks.get('node_env', {}).get('value') != 'production':
         summary['critical_issues'].append('NODE_ENV is not set to production - debug mode may be enabled')
     
-    if not env_checks.get('jwt_secret', {}).get('secure', False) and env_checks.get('jwt_secret', {}).get('exists', False):
-        summary['critical_issues'].append('JWT secret is weak or default - authentication is compromised')
+    if not env_checks.get('database_config', {}).get('complete', False):
+        summary['critical_issues'].append('MySQL database configuration incomplete - missing required fields')
+    
+    if not env_checks.get('database_config', {}).get('secure', False):
+        summary['critical_issues'].append('MySQL database password is weak or using default values')
+    
+    if env_checks.get('demo_status', {}).get('value') != 'NO':
+        summary['critical_issues'].append('DEMO_STATUS is not set to NO - system may be in demo mode')
+    
+    if not env_checks.get('token_security', {}).get('secure', False):
+        summary['critical_issues'].append('Token keys are weak or too short - authentication security compromised')
     
     if not permission_checks.get('env_file_permissions', {}).get('secure', False):
         summary['critical_issues'].append('.env file has insecure permissions - sensitive data may be exposed')
@@ -817,11 +872,19 @@ def generate_nodejs_security_summary(results):
         summary['critical_issues'].append('Docker container running as root user')
     
     # Warnings
-    if env_checks.get('database_url', {}).get('exposed', False):
-        summary['warnings'].append('Database credentials appear to use default or weak values')
+    if not env_checks.get('url_security', {}).get('secure', False):
+        ip_based_urls = env_checks.get('url_security', {}).get('ip_based_urls', [])
+        if ip_based_urls:
+            summary['warnings'].append(f'IP-based URLs detected (should use domain with HTTPS): {", ".join(ip_based_urls)}')
     
-    if env_checks.get('cors_origin', {}).get('value') == '*':
-        summary['warnings'].append('CORS origin is set to wildcard (*) - this may be insecure')
+    if not env_checks.get('mail_config', {}).get('complete', False):
+        summary['warnings'].append('Mail configuration is incomplete - email functionality may not work')
+    
+    if not env_checks.get('payment_config', {}).get('secure', False):
+        summary['warnings'].append('Payment gateway configuration may be incomplete')
+    
+    if not env_checks.get('prefix_config', {}).get('configured', False):
+        summary['warnings'].append('PREFIX is not configured properly')
     
     if not security_packages.get('helmet_installed', {}).get('installed', False):
         summary['warnings'].append('Helmet security middleware not installed')
@@ -859,8 +922,21 @@ def generate_nodejs_security_summary(results):
     if not performance_checks.get('health_check', {}).get('exists', False):
         summary['recommendations'].append('Implement health check endpoints for monitoring')
     
-    if not env_checks.get('ssl_config', {}).get('enabled', False):
-        summary['recommendations'].append('Enable SSL/TLS configuration for secure connections')
+    # Custom recommendations based on .env analysis
+    if not env_checks.get('url_security', {}).get('secure', False):
+        summary['recommendations'].append('Replace IP-based URLs with domain names using HTTPS protocol')
+    
+    if env_checks.get('node_env', {}).get('value') != 'production':
+        summary['recommendations'].append('Set NODE_ENV=production for production deployment')
+    
+    if not env_checks.get('database_config', {}).get('secure', False):
+        summary['recommendations'].append('Use strong MySQL passwords and avoid default credentials')
+    
+    if not env_checks.get('token_security', {}).get('secure', False):
+        summary['recommendations'].append('Generate strong, unique token keys (minimum 32 characters)')
+    
+    if env_checks.get('demo_status', {}).get('value') != 'NO':
+        summary['recommendations'].append('Set DEMO_STATUS=NO for production environment')
     
     # Docker recommendations
     if docker_config.get('dockerfile_exists'):

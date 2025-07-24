@@ -43,7 +43,7 @@ def check_laravel_security(conn, project_path):
             
     except Exception as e:
         results['error'] = str(e)
-        logger.error(f"Error checking Laravel security: {e}")
+        logger.error(f"Error checking Laravel security: {e}", exc_info=True)
     
     return results
 
@@ -56,11 +56,15 @@ def check_laravel_env_file(conn, project_path):
         'app_debug': {'value': None, 'secure': False, 'recommendation': 'Set APP_DEBUG=false in production'},
         'app_env': {'value': None, 'secure': False, 'recommendation': 'Set APP_ENV=production for production environment'},
         'app_key': {'exists': False, 'secure': False, 'recommendation': 'Ensure APP_KEY is set and unique'},
-        'database_credentials': {'exposed': False, 'recommendation': 'Ensure database credentials are not default'},
-        'mail_credentials': {'exposed': False, 'recommendation': 'Secure mail service credentials'},
-        'cache_driver': {'value': None, 'recommendation': 'Use appropriate cache driver'},
-        'session_driver': {'value': None, 'recommendation': 'Use secure session driver'},
-        'queue_connection': {'value': None, 'recommendation': 'Configure queue driver properly'}
+        'app_url': {'value': None, 'secure': False, 'recommendation': 'Use HTTPS domain instead of IP address'},
+        'database_config': {'complete': False, 'secure': False, 'recommendation': 'Ensure database configuration is complete and secure'},
+        'db_prefix': {'exists': False, 'recommendation': 'Add DB_PREFIX for security'},
+        'mlm_config': {'complete': False, 'secure': False, 'recommendation': 'Configure MLM-specific settings properly'},
+        'url_security': {'secure': False, 'ip_based_urls': [], 'recommendation': 'Use HTTPS domains instead of IP addresses'},
+        'demo_status': {'value': None, 'secure': False, 'recommendation': 'Set DEMO_STATUS=no for production'},
+        'mail_config': {'complete': False, 'secure': False, 'recommendation': 'Configure mail settings securely'},
+        'payment_config': {'secure': False, 'recommendation': 'Secure payment gateway configuration'},
+        'custom_checks': {}
     }
     
     try:
@@ -73,6 +77,11 @@ def check_laravel_env_file(conn, project_path):
             # Read .env file content
             env_content = conn.run(f'cat "{project_path}/.env"', hide=True)
             env_lines = env_content.stdout.strip().split('\n')
+            
+            # Track database configuration
+            db_fields = {'DB_CONNECTION': None, 'DB_HOST': None, 'DB_PORT': None, 'DB_DATABASE': None, 'DB_USERNAME': None, 'DB_PASSWORD': None}
+            mlm_urls = {'COMMISSION_URI': None, 'USER_REPLICA_URI': None, 'USER_LCP_URL': None, 'USER_URL': None, 'ECOM_URI': None}
+            mail_fields = {'MAIL_HOST': None, 'MAIL_USERNAME': None, 'MAIL_PASSWORD': None}
             
             for line in env_lines:
                 line = line.strip()
@@ -99,27 +108,79 @@ def check_laravel_env_file(conn, project_path):
                         env_checks['app_key']['exists'] = bool(value)
                         env_checks['app_key']['secure'] = len(value) > 20 and not value in ['base64:your-key-here', '']
                     
-                    # Check database credentials
-                    elif key in ['DB_PASSWORD', 'DB_USERNAME']:
-                        if value.lower() in ['root', 'admin', 'password', '123456', '', 'null']:
-                            env_checks['database_credentials']['exposed'] = True
+                    # Check APP_URL
+                    elif key == 'APP_URL':
+                        env_checks['app_url']['value'] = value
+                        if value and ('192.168.' in value or '127.0.0.1' in value or '10.' in value or 'localhost' in value):
+                            env_checks['url_security']['ip_based_urls'].append(f"{key}={value}")
+                        env_checks['app_url']['secure'] = 'https://' in value and not any(ip in value for ip in ['192.168.', '127.0.0.1', '10.', 'localhost'])
                     
-                    # Check mail credentials
-                    elif key in ['MAIL_PASSWORD', 'MAIL_USERNAME']:
-                        if value and value.lower() not in ['null', '']:
-                            env_checks['mail_credentials']['exposed'] = True
+                    # Check database fields
+                    elif key in db_fields:
+                        db_fields[key] = value
                     
-                    # Check cache driver
-                    elif key == 'CACHE_DRIVER':
-                        env_checks['cache_driver']['value'] = value
+                    # Check DB_PREFIX
+                    elif key == 'DB_PREFIX':
+                        env_checks['db_prefix']['exists'] = bool(value)
                     
-                    # Check session driver
-                    elif key == 'SESSION_DRIVER':
-                        env_checks['session_driver']['value'] = value
+                    # Check DEMO_STATUS
+                    elif key == 'DEMO_STATUS':
+                        env_checks['demo_status']['value'] = value
+                        env_checks['demo_status']['secure'] = value.lower() == 'no'
                     
-                    # Check queue connection
-                    elif key == 'QUEUE_CONNECTION':
-                        env_checks['queue_connection']['value'] = value
+                    # Check MLM-specific URLs
+                    elif key in mlm_urls:
+                        mlm_urls[key] = value
+                        if value and ('192.168.' in value or '127.0.0.1' in value or '10.' in value or 'localhost' in value):
+                            env_checks['url_security']['ip_based_urls'].append(f"{key}={value}")
+                    
+                    # Check mail configuration
+                    elif key in mail_fields:
+                        mail_fields[key] = value
+                    
+                    # Check payment configuration
+                    elif any(payment_key in key.upper() for payment_key in ['PAYPAL', 'STRIPE', 'GOOGLE_CLIENT']):
+                        env_checks['payment_config']['secure'] = True
+            
+            # Validate database configuration
+            env_checks['database_config']['complete'] = all(db_fields.values())
+            # Check database password strength
+            db_password = db_fields.get('DB_PASSWORD', '')
+            if db_password:
+                # Consider password weak if it's too short or contains common patterns
+                weak_patterns = ['password', '123456', 'admin', 'root', 'pass']
+                is_weak = len(db_password) < 8 or any(weak in db_password.lower() for weak in weak_patterns)
+                env_checks['database_config']['secure'] = not is_weak
+            else:
+                env_checks['database_config']['secure'] = False
+            
+            # Validate MLM configuration completeness
+            required_mlm_urls = ['COMMISSION_URI', 'USER_REPLICA_URI', 'USER_LCP_URL', 'USER_URL']
+            mlm_complete = all(mlm_urls.get(url) for url in required_mlm_urls)
+            env_checks['mlm_config']['complete'] = mlm_complete
+            env_checks['mlm_config']['secure'] = mlm_complete and len(env_checks['url_security']['ip_based_urls']) == 0
+            
+            # Validate mail configuration
+            env_checks['mail_config']['complete'] = all(mail_fields.values())
+            # Check for potentially exposed mail credentials
+            mail_user = mail_fields.get('MAIL_USERNAME', '')
+            mail_pass = mail_fields.get('MAIL_PASSWORD', '')
+            env_checks['mail_config']['secure'] = bool(mail_user and mail_pass and len(mail_pass) > 8)
+            
+            # Check URL security overall
+            env_checks['url_security']['secure'] = len(env_checks['url_security']['ip_based_urls']) == 0
+            
+            # Custom security checks
+            env_checks['custom_checks'] = {
+                'app_debug_disabled': env_checks['app_debug']['secure'],
+                'database_complete': env_checks['database_config']['complete'],
+                'database_secure': env_checks['database_config']['secure'],
+                'db_prefix_configured': env_checks['db_prefix']['exists'],
+                'demo_status_production': env_checks['demo_status']['secure'],
+                'mlm_urls_configured': env_checks['mlm_config']['complete'],
+                'urls_domain_based': env_checks['url_security']['secure'],
+                'mail_configured': env_checks['mail_config']['complete']
+            }
         
         else:
             env_checks['env_file_exists'] = False
@@ -239,10 +300,16 @@ def generate_laravel_security_summary(results):
         summary['critical_issues'].append('.env file not found - application may not work properly')
     
     if env_checks.get('app_debug', {}).get('value') and not env_checks['app_debug']['secure']:
-        summary['critical_issues'].append('APP_DEBUG is enabled - this exposes sensitive information in production')
+        summary['critical_issues'].append('APP_DEBUG=true - this exposes sensitive information in production')
     
     if not env_checks.get('app_key', {}).get('secure', False):
         summary['critical_issues'].append('APP_KEY is missing or insecure - encryption and sessions are compromised')
+    
+    if not env_checks.get('database_config', {}).get('complete', False):
+        summary['critical_issues'].append('Database configuration is incomplete')
+    
+    if not env_checks.get('database_config', {}).get('secure', False):
+        summary['critical_issues'].append('Database password is weak or uses default values')
     
     if not permission_checks.get('env_file_permissions', {}).get('secure', False):
         summary['critical_issues'].append('.env file has insecure permissions - sensitive data may be exposed')
@@ -251,8 +318,22 @@ def generate_laravel_security_summary(results):
     if env_checks.get('app_env', {}).get('value') != 'production':
         summary['warnings'].append('APP_ENV is not set to production')
     
-    if env_checks.get('database_credentials', {}).get('exposed', False):
-        summary['warnings'].append('Database credentials appear to use default or weak values')
+    if not env_checks.get('db_prefix', {}).get('exists', False):
+        summary['warnings'].append('DB_PREFIX is not configured - database tables lack security prefix')
+    
+    if not env_checks.get('demo_status', {}).get('secure', False):
+        summary['warnings'].append('DEMO_STATUS is not set to "no" for production environment')
+    
+    if not env_checks.get('url_security', {}).get('secure', False):
+        ip_based_urls = env_checks.get('url_security', {}).get('ip_based_urls', [])
+        if ip_based_urls:
+            summary['warnings'].append(f'IP-based URLs detected (should use HTTPS domains): {", ".join(ip_based_urls)}')
+    
+    if not env_checks.get('mlm_config', {}).get('complete', False):
+        summary['warnings'].append('MLM configuration incomplete - missing required URLs (COMMISSION_URI, USER_REPLICA_URI, USER_LCP_URL, USER_URL)')
+    
+    if not env_checks.get('mail_config', {}).get('secure', False):
+        summary['warnings'].append('Mail configuration may be incomplete or insecure')
     
     if not permission_checks.get('storage_writable', False):
         summary['warnings'].append('Storage directory may not be writable')
@@ -269,6 +350,28 @@ def generate_laravel_security_summary(results):
     
     if not cache_checks.get('composer_optimized', {}).get('optimized', False):
         summary['recommendations'].append('Optimize Composer autoloader: composer install --optimize-autoloader --no-dev')
+    
+    # Custom recommendations based on .env analysis
+    if env_checks.get('app_debug', {}).get('value') != 'false':
+        summary['recommendations'].append('Set APP_DEBUG=false for production environment')
+    
+    if env_checks.get('app_env', {}).get('value') != 'production':
+        summary['recommendations'].append('Set APP_ENV=production for production deployment')
+    
+    if not env_checks.get('db_prefix', {}).get('exists', False):
+        summary['recommendations'].append('Add DB_PREFIX to secure database table names')
+    
+    if not env_checks.get('url_security', {}).get('secure', False):
+        summary['recommendations'].append('Replace IP-based URLs with HTTPS domain names')
+    
+    if not env_checks.get('database_config', {}).get('secure', False):
+        summary['recommendations'].append('Use strong database password and avoid default credentials')
+    
+    if env_checks.get('demo_status', {}).get('value') != 'no':
+        summary['recommendations'].append('Set DEMO_STATUS=no for production environment')
+    
+    if not env_checks.get('mlm_config', {}).get('complete', False):
+        summary['recommendations'].append('Configure all required MLM URLs: COMMISSION_URI, USER_REPLICA_URI, USER_LCP_URL, USER_URL, ECOM_URI')
     
     return summary
 

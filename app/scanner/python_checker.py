@@ -68,7 +68,7 @@ def check_python_security(conn, project_path, stack_name=None):
             
     except Exception as e:
         results['error'] = str(e)
-        logger.error(f"Error checking Python security: {e}")
+        logger.error(f"Error checking Python security: {e}", exc_info=True)
     
     return results
 
@@ -146,11 +146,18 @@ def check_python_env_file(conn, project_path):
         'database_config': {'exposed': False, 'recommendation': 'Use environment variables for database credentials'},
         'api_keys': {'exposed': False, 'recommendation': 'Secure API keys and tokens'},
         'cors_config': {'value': None, 'secure': False},
-        'ssl_config': {'enabled': False, 'recommendation': 'Enable SSL/TLS in production'}
+        'ssl_config': {'enabled': False, 'recommendation': 'Enable SSL/TLS in production'},
+        'custom_checks': {
+            'debug_status': {'secure': False, 'value': None, 'recommendation': 'Set DEBUG=FALSE for production'},
+            'demo_status': {'secure': False, 'value': None, 'recommendation': 'Set DEMO_STATUS=0 for production'},
+            'prefix_set': {'configured': False, 'value': None, 'recommendation': 'Ensure PREFIX is properly configured'},
+            'secret_key_strength': {'secure': False, 'recommendation': 'Use strong SECRET_KEY (>32 characters)'},
+            'db_config_complete': {'complete': False, 'missing_fields': [], 'recommendation': 'Configure all required database fields'}
+        }
     }
     
     try:
-        # Check if .env file exists
+        # Check if .env file exists in project root
         env_file_check = conn.run(f'test -f "{project_path}/.env" && echo "EXISTS" || echo "NOT_EXISTS"', hide=True)
         
         if 'EXISTS' in env_file_check.stdout:
@@ -159,6 +166,14 @@ def check_python_env_file(conn, project_path):
             # Read .env file content
             env_content = conn.run(f'cat "{project_path}/.env"', hide=True)
             env_lines = env_content.stdout.strip().split('\n')
+            
+            # Track database configuration fields
+            db_fields_found = {
+                'DB_USER': False,
+                'DB_PASSWORD': False, 
+                'DB_NAME': False,
+                'DB_HOST': False
+            }
             
             for line in env_lines:
                 line = line.strip()
@@ -170,12 +185,28 @@ def check_python_env_file(conn, project_path):
                     key = key.strip().upper()
                     value = value.strip().strip('"\'')
                     
-                    # Django specific checks
+                    # Custom security checks for your specific requirements
                     if key == 'DEBUG':
+                        env_checks['custom_checks']['debug_status']['value'] = value
+                        env_checks['custom_checks']['debug_status']['secure'] = value.upper() in ['FALSE', 'F', '0', 'NO']
+                        # Also set for Django/Flask compatibility
                         env_checks['django_settings']['debug'] = value.lower()
+                        env_checks['flask_config']['debug'] = value.lower()
+                    
+                    elif key == 'DEMO_STATUS':
+                        env_checks['custom_checks']['demo_status']['value'] = value
+                        env_checks['custom_checks']['demo_status']['secure'] = value in ['0', 'FALSE', 'F']
+                    
+                    elif key == 'PREFIX':
+                        env_checks['custom_checks']['prefix_set']['value'] = value
+                        env_checks['custom_checks']['prefix_set']['configured'] = bool(value and value != '')
+                    
                     elif key == 'SECRET_KEY':
                         env_checks['django_settings']['secret_key'] = bool(value) and len(value) > 20
                         env_checks['flask_config']['secret_key'] = bool(value) and len(value) > 20
+                        env_checks['custom_checks']['secret_key_strength']['secure'] = bool(value) and len(value) > 32
+                        env_checks['custom_checks']['secret_key_strength']['length'] = len(value) if value else 0
+                    
                     elif key == 'ALLOWED_HOSTS':
                         env_checks['django_settings']['allowed_hosts'] = value
                     
@@ -183,19 +214,47 @@ def check_python_env_file(conn, project_path):
                     elif key == 'FLASK_DEBUG':
                         env_checks['flask_config']['debug'] = value.lower()
                     
-                    # Database credentials
+                    # Database credentials security check
                     elif any(db_key in key for db_key in ['DATABASE_URL', 'DB_PASSWORD', 'POSTGRES_PASSWORD', 'MYSQL_PASSWORD']):
                         if any(weak in value.lower() for weak in ['password', '123456', 'admin', 'root', '']):
                             env_checks['database_config']['exposed'] = True
                     
-                    # API keys
-                    elif any(api_key in key for api_key in ['API_KEY', 'SECRET_KEY', 'ACCESS_TOKEN', 'AUTH_TOKEN']):
+                    # Check for weak database credentials from your example
+                    elif key == 'DB_USER':
+                        db_fields_found['DB_USER'] = True
+                        # Check for default/weak usernames
+                        if value.lower() in ['root', 'admin', 'user', 'test']:
+                            env_checks['database_config']['weak_username'] = True
+                    
+                    elif key == 'DB_PASSWORD':
+                        db_fields_found['DB_PASSWORD'] = True
+                        # Check if password follows weak patterns
+                        if any(weak_pattern in value.lower() for weak_pattern in ['root', 'admin', 'password', '123456']) or len(value) < 8:
+                            env_checks['database_config']['exposed'] = True
+                            env_checks['database_config']['weak_password'] = True
+                    
+                    elif key == 'DB_NAME':
+                        db_fields_found['DB_NAME'] = True
+                    
+                    elif key == 'DB_HOST':
+                        db_fields_found['DB_HOST'] = True
+                    
+                    # API keys and sensitive data
+                    elif any(api_key in key for api_key in ['API_KEY', 'ACCESS_TOKEN', 'AUTH_TOKEN', 'PRIVATE_KEY_NAME']):
                         if value and value.lower() not in ['null', '']:
                             env_checks['api_keys']['exposed'] = True
                     
                     # SSL configuration
                     elif any(ssl_key in key for ssl_key in ['SSL', 'HTTPS', 'TLS']):
                         env_checks['ssl_config']['enabled'] = value.lower() in ['true', '1', 'yes', 'enabled']
+            
+            # Check database configuration completeness
+            missing_db_fields = [field for field, found in db_fields_found.items() if not found]
+            env_checks['custom_checks']['db_config_complete']['missing_fields'] = missing_db_fields
+            env_checks['custom_checks']['db_config_complete']['complete'] = len(missing_db_fields) == 0
+            
+            if missing_db_fields:
+                env_checks['custom_checks']['db_config_complete']['recommendation'] = f"Missing database fields: {', '.join(missing_db_fields)}"
         
         else:
             env_checks['env_file_exists'] = False
@@ -637,7 +696,7 @@ def check_python_swarm_config(conn, stack_name):
     
     except Exception as e:
         swarm_checks['error'] = str(e)
-        logger.error(f"Error checking Python Swarm configuration: {e}")
+        logger.error(f"Error checking Python Swarm configuration: {e}", exc_info=True)
     
     return swarm_checks
 
@@ -666,9 +725,25 @@ def generate_python_security_summary(results):
     if not env_checks.get('env_file_exists', False):
         summary['critical_issues'].append('.env file not found - environment variables not configured')
     
+    # Custom critical checks for your specific requirements
+    custom_checks = env_checks.get('custom_checks', {})
+    
+    if not custom_checks.get('debug_status', {}).get('secure', False):
+        debug_value = custom_checks.get('debug_status', {}).get('value', 'unknown')
+        summary['critical_issues'].append(f'DEBUG is enabled ({debug_value}) - should be FALSE in production')
+    
+    if not custom_checks.get('demo_status', {}).get('secure', False):
+        demo_value = custom_checks.get('demo_status', {}).get('value', 'unknown')
+        summary['critical_issues'].append(f'DEMO_STATUS is enabled ({demo_value}) - should be 0 for production')
+    
+    if not custom_checks.get('secret_key_strength', {}).get('secure', False):
+        key_length = custom_checks.get('secret_key_strength', {}).get('length', 0)
+        summary['critical_issues'].append(f'SECRET_KEY is weak (length: {key_length}) - should be >32 characters')
+    
+    # Legacy Django/Flask checks
     if env_checks.get('django_settings', {}).get('debug') == 'true':
         summary['critical_issues'].append('Django DEBUG is enabled - should be False in production')
-    
+
     if env_checks.get('flask_config', {}).get('debug') == 'true':
         summary['critical_issues'].append('Flask DEBUG is enabled - should be False in production')
     
@@ -691,8 +766,21 @@ def generate_python_security_summary(results):
         summary['critical_issues'].append('Docker container running as root user')
     
     # Warnings
+    if not custom_checks.get('prefix_set', {}).get('configured', False):
+        summary['warnings'].append('PREFIX not configured - application may not function properly')
+    
+    if not custom_checks.get('db_config_complete', {}).get('complete', False):
+        missing_fields = custom_checks.get('db_config_complete', {}).get('missing_fields', [])
+        summary['warnings'].append(f'Database configuration incomplete - missing: {", ".join(missing_fields)}')
+    
     if env_checks.get('database_config', {}).get('exposed', False):
         summary['warnings'].append('Database credentials appear to use default or weak values')
+    
+    if env_checks.get('database_config', {}).get('weak_password', False):
+        summary['warnings'].append('Database password appears to be weak or follows common patterns')
+    
+    if env_checks.get('database_config', {}).get('weak_username', False):
+        summary['warnings'].append('Database username uses default values (root/admin/user)')
     
     if requirements_checks.get('versions', {}).get('unpinned', 0) > 3:
         unpinned_count = requirements_checks['versions']['unpinned']
@@ -713,6 +801,30 @@ def generate_python_security_summary(results):
         summary['warnings'].append('Docker Swarm stack not using secrets for sensitive data')
     
     # Recommendations
+    # Custom recommendations for your specific requirements
+    if not custom_checks.get('debug_status', {}).get('secure', False):
+        summary['recommendations'].append('Set DEBUG=FALSE in .env file for production environment')
+    
+    if not custom_checks.get('demo_status', {}).get('secure', False):
+        summary['recommendations'].append('Set DEMO_STATUS=0 in .env file for production environment')
+    
+    if not custom_checks.get('prefix_set', {}).get('configured', False):
+        summary['recommendations'].append('Configure PREFIX value in .env file')
+    
+    if not custom_checks.get('db_config_complete', {}).get('complete', False):
+        missing_fields = custom_checks.get('db_config_complete', {}).get('missing_fields', [])
+        summary['recommendations'].append(f'Complete database configuration by adding: {", ".join(missing_fields)}')
+    
+    if not custom_checks.get('secret_key_strength', {}).get('secure', False):
+        summary['recommendations'].append('Generate a stronger SECRET_KEY (>32 characters) using: python -c "import secrets; print(secrets.token_urlsafe(50))"')
+    
+    if env_checks.get('database_config', {}).get('weak_password', False):
+        summary['recommendations'].append('Use a stronger database password with mixed case, numbers, and special characters')
+    
+    if env_checks.get('database_config', {}).get('weak_username', False):
+        summary['recommendations'].append('Create a dedicated database user instead of using root/admin accounts')
+    
+    # General security recommendations
     if not any(security_packages.get('security_packages', {}).values()):
         summary['recommendations'].append('Install security packages for your Python framework')
     

@@ -1,289 +1,281 @@
-from fastapi import FastAPI, Request, Form, File, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from scanner.security_checker import run_full_scan
-import os
-import tempfile
-import json
 import asyncio
+import json
+import uuid
+import queue
+import threading
 import time
-from typing import Generator
+from scanner.security_checker import run_full_scan
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-# Global dictionary to store scan progress
-scan_progress = {}
+# Mount static files for reports
+app.mount("/reports", StaticFiles(directory="reports"), name="reports")
 
-def generate_progress_stream(scan_id: str) -> Generator[str, None, None]:
-    """Generate Server-Sent Events for scan progress"""
-    import time
+# Store progress queues for active scans
+active_scans = {}
+
+class ScanProgressManager:
+    def __init__(self):
+        self.scans = {}
+        # Define scan stages for progress calculation
+        self.scan_stages = [
+            'connection',      # 1. Establishing connection
+            'port_scan',       # 2. Port scanning  
+            'firewall',        # 3. Firewall analysis
+            'laravel',         # 4. Laravel security check
+            'node',            # 5. Node.js security check
+            'python',          # 6. Python security check
+            'docker',          # 7. Docker security check
+            'file_check',      # 8. File permission check
+            'report',          # 9. Generating report
+            'complete'         # 10. Completion
+        ]
     
-    while True:
-        if scan_id in scan_progress:
-            progress_data = scan_progress[scan_id]
-            yield f"data: {json.dumps(progress_data)}\n\n"
+    def create_scan(self, scan_id: str):
+        """Create a new scan progress queue"""
+        self.scans[scan_id] = {
+            'queue': queue.Queue(),
+            'status': 'running',
+            'result': None,
+            'current_stage': 0,
+            'total_stages': len(self.scan_stages)
+        }
+    
+    def update_progress(self, scan_id: str, message: str, stage: str):
+        """Add progress update to scan queue with percentage calculation"""
+        if scan_id in self.scans:
+            scan_data = self.scans[scan_id]
             
-            # If scan is complete, clean up and break
-            if progress_data.get('status') in ['completed', 'error']:
+            # Update current stage index
+            if stage in self.scan_stages:
+                stage_index = self.scan_stages.index(stage)
+                scan_data['current_stage'] = max(scan_data['current_stage'], stage_index)
+            
+            # Calculate progress percentage
+            progress_percentage = (scan_data['current_stage'] / scan_data['total_stages']) * 100
+            
+            progress_data = {
+                "stage": stage,
+                "message": message,
+                "timestamp": time.strftime('%H:%M:%S'),
+                "status": "progress",
+                "percentage": round(progress_percentage, 1),
+                "current_stage": scan_data['current_stage'] + 1,
+                "total_stages": scan_data['total_stages']
+            }
+            self.scans[scan_id]['queue'].put(progress_data)
+    
+    def complete_scan(self, scan_id: str, result: dict):
+        """Mark scan as complete"""
+        if scan_id in self.scans:
+            self.scans[scan_id]['status'] = 'complete'
+            self.scans[scan_id]['result'] = result
+            
+            # Add download URL if report path exists
+            if 'report_path' in result:
+                import os
+                report_filename = os.path.basename(result['report_path'])
+                result['report_download_url'] = f"/download-report/{report_filename}"
+            
+            completion_data = {
+                "stage": "complete",
+                "message": "✅ Scan completed successfully!",
+                "timestamp": time.strftime('%H:%M:%S'),
+                "status": "complete",
+                "percentage": 100,
+                "current_stage": len(self.scan_stages),
+                "total_stages": len(self.scan_stages),
+                "result": result
+            }
+            self.scans[scan_id]['queue'].put(completion_data)
+    
+    def error_scan(self, scan_id: str, error: str):
+        """Mark scan as failed"""
+        if scan_id in self.scans:
+            self.scans[scan_id]['status'] = 'error'
+            
+            scan_data = self.scans[scan_id]
+            current_percentage = (scan_data['current_stage'] / scan_data['total_stages']) * 100
+            
+            error_data = {
+                "stage": "error",
+                "message": f"❌ Scan failed: {error}",
+                "timestamp": time.strftime('%H:%M:%S'),
+                "status": "error",
+                "percentage": round(current_percentage, 1),
+                "current_stage": scan_data['current_stage'],
+                "total_stages": scan_data['total_stages']
+            }
+            self.scans[scan_id]['queue'].put(error_data)
+    
+    def cleanup_scan(self, scan_id: str):
+        """Remove scan data after completion"""
+        if scan_id in self.scans:
+            del self.scans[scan_id]
+
+# Global progress manager
+progress_manager = ScanProgressManager()
+
+@app.get("/", response_class=HTMLResponse)
+async def read_root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.post("/start-scan")
+async def start_scan(
+    host: str = Form(...),
+    port: int = Form(22),
+    username: str = Form(...),
+    password: str = Form(None),
+    ssh_key_path: str = Form(None),
+    key_passphrase: str = Form(None),
+    comprehensive_scan: bool = Form(False),
+    project_path: str = Form("/var/www/html"),
+    stack_name: str = Form(None)
+):
+    """
+    Start a new scan and return scan ID for progress tracking
+    """
+    # Generate unique scan ID
+    scan_id = str(uuid.uuid4())
+    
+    # Create progress tracking for this scan
+    progress_manager.create_scan(scan_id)
+    
+    def progress_callback(message: str, stage: str):
+        """Callback function to update progress"""
+        progress_manager.update_progress(scan_id, message, stage)
+    
+    def run_scan_thread():
+        """Run scan in background thread"""
+        try:
+            result = run_full_scan(
+                host=host,
+                port=port,
+                username=username,
+                password=password,
+                ssh_key_path=ssh_key_path,
+                key_passphrase=key_passphrase,
+                comprehensive_scan=comprehensive_scan,
+                project_path=project_path,
+                stack_name=stack_name,
+                progress_callback=progress_callback
+            )
+            
+            progress_manager.complete_scan(scan_id, result)
+            
+        except Exception as e:
+            progress_manager.error_scan(scan_id, str(e))
+            # Also log the error with traceback for debugging
+            import logging
+            logging.getLogger(__name__).error(f"Scan failed for {scan_id}: {e}", exc_info=True)
+    
+    # Start scan in background thread
+    scan_thread = threading.Thread(target=run_scan_thread, daemon=True)
+    scan_thread.start()
+    
+    return {
+        "scan_id": scan_id,
+        "status": "started",
+        "message": "Scan started successfully",
+        "progress_url": f"/scan-progress/{scan_id}"
+    }
+
+@app.get("/scan-progress/{scan_id}")
+async def scan_progress(scan_id: str):
+    """
+    Server-Sent Events endpoint for real-time scan progress
+    """
+    async def event_generator():
+        if scan_id not in progress_manager.scans:
+            yield f"data: {json.dumps({'error': 'Scan not found', 'status': 'error'})}\n\n"
+            return
+        
+        scan_data = progress_manager.scans[scan_id]
+        
+        # Send initial connection message
+        yield f"data: {json.dumps({'message': 'Connected to scan progress', 'stage': 'connection', 'status': 'connected'})}\n\n"
+        
+        while scan_data['status'] == 'running':
+            try:
+                # Check for new progress updates (non-blocking)
+                try:
+                    progress_update = scan_data['queue'].get_nowait()
+                    yield f"data: {json.dumps(progress_update)}\n\n"
+                    
+                    # If scan is complete, break the loop
+                    if progress_update.get('status') in ['complete', 'error']:
+                        break
+                        
+                except queue.Empty:
+                    # No new updates, send heartbeat
+                    yield f"data: {json.dumps({'status': 'heartbeat'})}\n\n"
+                
+                await asyncio.sleep(0.5)  # Check every 500ms
+                
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e), 'status': 'error'})}\n\n"
                 break
         
-        time.sleep(0.5)  # Check every 500ms
+        # Send any remaining messages in queue
+        while not scan_data['queue'].empty():
+            try:
+                progress_update = scan_data['queue'].get_nowait()
+                yield f"data: {json.dumps(progress_update)}\n\n"
+            except queue.Empty:
+                break
+        
+        # Clean up after 30 seconds
+        await asyncio.sleep(30)
+        progress_manager.cleanup_scan(scan_id)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Content-Type": "text/event-stream"
+        }
+    )
+
+@app.get("/scan-status/{scan_id}")
+async def get_scan_status(scan_id: str):
+    """Get current scan status"""
+    if scan_id not in progress_manager.scans:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    
+    scan_data = progress_manager.scans[scan_id]
+    return {
+        "scan_id": scan_id,
+        "status": scan_data['status'],
+        "result": scan_data.get('result')
+    }
+
+@app.get("/download-report/{filename}")
+async def download_report(filename: str):
+    """Download generated PDF report"""
+    import os
+    report_path = os.path.join("reports", filename)
+    
+    if not os.path.exists(report_path):
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    return FileResponse(
+        path=report_path,
+        filename=filename,
+        media_type="application/pdf"
+    )
 
 @app.get("/debug/progress")
 async def debug_progress():
     """Debug endpoint to see all scan progress"""
     return {
-        "current_scans": scan_progress,
-        "total_scans": len(scan_progress)
+        "current_scans": progress_manager.scans,
+        "total_scans": len(progress_manager.scans)
     }
-
-@app.get("/progress/{scan_id}")
-async def get_scan_progress(scan_id: str):
-    """Get current scan progress as JSON"""
-    if scan_id in scan_progress:
-        progress_data = scan_progress[scan_id]
-        print(f"DEBUG: Returning progress for {scan_id}: {progress_data}")
-        return progress_data
-    else:
-        print(f"DEBUG: Scan ID {scan_id} not found in progress dict. Available IDs: {list(scan_progress.keys())}")
-        return {'status': 'not_found', 'message': 'Scan not found'}
-
-class ProgressCallback:
-    """Callback class to update scan progress"""
-    def __init__(self, scan_id: str):
-        self.scan_id = scan_id
-        self.current_step = 0
-        self.total_steps = 11  # Updated: connection + authentication + connection_established + 8 scan steps
-    
-    def update(self, status: str, message: str, step_name: str = None):
-        """Update progress with current status and message"""
-        if step_name:
-            self.current_step += 1
-        
-        progress_percent = min(int((self.current_step / self.total_steps) * 100), 100)
-        
-        # Debug logging
-        print(f"DEBUG: Progress update - Step {self.current_step}/{self.total_steps} ({progress_percent}%): {message}")
-        
-        scan_progress[self.scan_id] = {
-            'status': status,
-            'message': message,
-            'step': self.current_step,
-            'total_steps': self.total_steps,
-            'progress_percent': progress_percent,
-            'current_operation': step_name or 'Processing...'
-        }
-
-def run_scan_with_progress(scan_id: str, *args, **kwargs):
-    """Run scan with progress updates"""
-    callback = ProgressCallback(scan_id)
-    
-    try:
-        # Update progress throughout the scan
-        callback.update('running', '🔍 Initializing security scan...', 'initialization')
-        
-        # Note: We'll need to modify the security checker to accept callbacks
-        # For now, we'll simulate progress updates
-        result = run_full_scan(*args, **kwargs)
-        
-        if result.get('status') == 'success':
-            callback.update('completed', f'✅ Scan completed successfully! Report generated.', 'completed')
-        else:
-            callback.update('error', f'❌ Scan failed: {result.get("error", "Unknown error")}', 'error')
-        
-        return result
-        
-    except Exception as e:
-        callback.update('error', f'❌ Scan failed with error: {str(e)}', 'error')
-        return {'status': 'failed', 'error': str(e)}
-
-@app.get("/", response_class=HTMLResponse)
-def read_form(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-@app.post("/scan")
-async def scan_server(
-    request: Request,
-    host: str = Form(...),
-    port: int = Form(...),
-    username: str = Form(...),
-    auth_method: str = Form('password'),  # "password" or "key"
-    password: str = Form(None),
-    ssh_key: UploadFile = File(None),
-    key_passphrase: str = Form(None),
-    project_path: str = Form('/www/wwwroot/team1/damon/'),
-    stack_name: str = Form(None)  # Docker Swarm stack name (optional)
-):
-    # Generate unique scan ID
-    import time
-    scan_id = f"scan_{int(time.time() * 1000)}"
-    
-    # Initialize progress
-    scan_progress[scan_id] = {
-        'status': 'starting',
-        'message': '🚀 Starting security scan...',
-        'step': 0,
-        'total_steps': 11,
-        'progress_percent': 0,
-        'current_operation': 'Initializing'
-    }
-    
-    print(f"DEBUG: Initial progress set for {scan_id}: {scan_progress[scan_id]}")
-    
-    # Add small delay to ensure progress is set before polling starts
-    import asyncio
-    await asyncio.sleep(0.1)
-    
-    try:
-        # Handle authentication based on method
-        if auth_method == "password":
-            if not password:
-                scan_progress[scan_id] = {
-                    'status': 'error',
-                    'message': '❌ Password is required for password authentication',
-                    'step': 0,
-                    'total_steps': 11,
-                    'progress_percent': 0,
-                    'current_operation': 'Error'
-                }
-                return {"error": "Password is required for password authentication", "scan_id": scan_id}
-            
-            # Run scan in background with progress updates
-            result = await asyncio.get_event_loop().run_in_executor(
-                None, 
-                run_scan_with_progress,
-                scan_id, host, port, username,
-                password, None, None, project_path, stack_name
-            )
-        
-        elif auth_method == "key":
-            if not ssh_key:
-                scan_progress[scan_id] = {
-                    'status': 'error',
-                    'message': '❌ SSH key file is required for key authentication',
-                    'step': 0,
-                    'total_steps': 11,
-                    'progress_percent': 0,
-                    'current_operation': 'Error'
-                }
-                return {"error": "SSH key file is required for key authentication", "scan_id": scan_id}
-            
-            # Save uploaded SSH key to temporary file
-            with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".pem") as temp_key:
-                content = await ssh_key.read()
-                temp_key.write(content)
-                temp_key_path = temp_key.name
-            
-            try:
-                # Set proper permissions for SSH key
-                os.chmod(temp_key_path, 0o600)
-                
-                # Run scan in background with progress updates
-                result = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    run_scan_with_progress,
-                    scan_id, host, port, username,
-                    None, temp_key_path, key_passphrase, project_path, stack_name
-                )
-            finally:
-                # Clean up temporary key file
-                if os.path.exists(temp_key_path):
-                    os.unlink(temp_key_path)
-        
-        else:
-            scan_progress[scan_id] = {
-                'status': 'error',
-                'message': '❌ Invalid authentication method',
-                'step': 0,
-                'total_steps': 11,
-                'progress_percent': 0,
-                'current_operation': 'Error'
-            }
-            return {"error": "Invalid authentication method. Use 'password' or 'key'", "scan_id": scan_id}
-        
-        # Add download link to the response if report was generated
-        if result.get('report_path'):
-            report_filename = os.path.basename(result['report_path'])
-            result['report_download_url'] = f"/download-report/{report_filename}"
-            result['report_filename'] = report_filename
-        
-        result['scan_id'] = scan_id
-        return result
-        
-    except Exception as e:
-        scan_progress[scan_id] = {
-            'status': 'error',
-            'message': f'❌ Unexpected error: {str(e)}',
-            'step': 0,
-            'total_steps': 11,
-            'progress_percent': 0,
-            'current_operation': 'Error'
-        }
-        return {"error": str(e), "scan_id": scan_id}
-
-def run_scan_with_progress(scan_id: str, host, port, username, password=None, ssh_key_path=None, key_passphrase=None, project_path=None, stack_name=None):
-    """Run scan with detailed progress updates"""
-    callback = ProgressCallback(scan_id)
-    
-    try:
-        # Initialize scan
-        callback.update('running', '� Initializing security scan...', 'initialization')
-        
-        # Run the actual scan with progress callback
-        result = run_full_scan(
-            host, port, username,
-            password=password,
-            ssh_key_path=ssh_key_path,
-            key_passphrase=key_passphrase,
-            project_path=project_path,
-            stack_name=stack_name,
-            progress_callback=callback  # Pass the callback to the scanner
-        )
-        
-        # Progress completion is now handled inside the security checker
-        return result
-        
-    except Exception as e:
-        callback.update('error', f'❌ Scan failed: {str(e)}', 'error')
-        return {'status': 'failed', 'error': str(e)}
-
-@app.get("/download-report/{report_filename}")
-async def download_report(report_filename: str):
-    """
-    Download the generated security report PDF
-    """
-    reports_dir = os.path.join(os.getcwd(), "reports")
-    report_path = os.path.join(reports_dir, report_filename)
-    
-    if os.path.exists(report_path):
-        return FileResponse(
-            path=report_path,
-            filename=report_filename,
-            media_type='application/pdf'
-        )
-    else:
-        return {"error": "Report file not found"}
-
-@app.get("/reports")
-async def list_reports():
-    """
-    List all available security reports
-    """
-    reports_dir = os.path.join(os.getcwd(), "reports")
-    if not os.path.exists(reports_dir):
-        return {"reports": []}
-    
-    reports = []
-    for filename in os.listdir(reports_dir):
-        if filename.endswith('.pdf'):
-            filepath = os.path.join(reports_dir, filename)
-            file_stats = os.stat(filepath)
-            reports.append({
-                "filename": filename,
-                "size": file_stats.st_size,
-                "created": file_stats.st_ctime,
-                "download_url": f"/download-report/{filename}"
-            })
-    
-    return {"reports": reports}
